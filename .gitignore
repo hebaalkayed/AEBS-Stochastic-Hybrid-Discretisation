@@ -1,0 +1,16 @@
+# Python compilation
+__pycache__/
+*.py[cod]
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Simulation artifacts
+*.png
+*.log
