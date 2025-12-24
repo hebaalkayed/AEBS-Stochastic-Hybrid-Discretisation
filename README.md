@@ -25,22 +25,21 @@ The environment module supports 5 critical testing scenarios standard in the aut
 | **Highway Traffic** | Dynamic | Real-world | Lead vehicle performs unpredictable acceleration/braking. |
 
 ## Physics & Kinematics Sources
-To ensure the validity of verification results, the vehicle dynamics are calibrated using real-world commercial vehicle data:
+To ensure the validity of verification results, the system dynamics and testing protocols are grounded in established industry and academic benchmarks:
 
-1. **Vehicle Dynamics (N1 Class):**
-    * Max Deceleration: $-9.8 m/s^2$ (1g) on dry asphalt.
-    * Response Model: System is modeled as a discrete-time Linear Time-Invariant (LTI) system with simulation step $dt=0.2s$.
-2. **Controller Logic:**
-    * *Industry Mode* follows **MathWorks AEBS** and **Bosch** specifications (TTC < 1.0s trigger).
-    * *Safe Mode* utilizes conservative braking profiles suitable for **Safety-Critical Verification**.
+* **Vehicle Dynamics:** The continuous plant model is defined by the **ARCH-COMP20 AINNCS Benchmark** for Adaptive Cruise Control (ACC). It models the vehicle as a point mass with first-order acceleration lag dynamics:
+    $$\dot{a}(t) = -2a(t) + 2u(t) - \mu v^2(t)$$
+    See: *Johnson et al., ["ARCH-COMP20 Category Report: AINNCS"](https://easychair.org/publications/paper/Jvwg), 2020.*
+* **Control Logic:** The hierarchical control strategy (Warning $\to$ Partial $\to$ Emergency) and Time-to-Collision (TTC) thresholds are derived from the industry-standard [MathWorks AEB Benchmark](https://www.mathworks.com/help/driving/ug/autonomous-emergency-braking-with-sensor-fusion.html).
+* **Testing Scenarios:** Simulation speeds (10–80 km/h) and obstacle configurations (e.g., *Urban Cut-Out*, *Highway Static*) are defined according to the official [Euro NCAP Safety Assist Protocols](https://www.euroncap.com/en/for-engineers/protocols/safety-assist/).
 
 ## Installation & Usage
 
 ### 1. Setup
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd <your-repo-name>
+git clone https://github.com/hebaalkayed/AEBS-Stochastic-Hybrid-Discretisation.git
+cd AEBS-Stochastic-Hybrid-Discretisation
 
 # Create a virtual environment
 python -m venv .venv
