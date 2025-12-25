@@ -1,67 +1,100 @@
 import numpy as np
-import itertools
 
-class GridWorld:
-    """
-    Defines the discrete state space for the verification.
-    Based on Algorithm 1: State Space Partitioning.
-    """
-    def __init__(self):
-        # --- 1. DEFINE BOUNDS ---
-        # We focus on the "danger zone" (0 to 100m)
-        self.d_min, self.d_max = 0.0, 100.0
-        self.v_min, self.v_max = 0.0, 40.0   # 0 to 144 km/h
-        
-        # --- 2. DEFINE RESOLUTION (The "Cell Size") ---
-        # Coarse grid for initial testing (make these smaller for final results)
-        self.d_step = 5.0   # Every 5 meters
-        self.v_step = 2.0   # Every 2 m/s
-        
-        # --- 3. GENERATE POINTS ---
-        self.d_grid = np.arange(self.d_min, self.d_max + self.d_step, self.d_step)
-        self.ve_grid = np.arange(self.v_min, self.v_max + self.v_step, self.v_step)
-        self.vl_grid = np.arange(self.v_min, self.v_max + self.v_step, self.v_step)
-        
-        # Pre-calculate shape for easier indexing
-        self.shape = (len(self.d_grid), len(self.ve_grid), len(self.vl_grid))
-        self.n_states = np.prod(self.shape)
-        
-        print(f"Grid Initialized: {self.shape} -> {self.n_states} total discrete states.")
+# ==============================================================================
+#  GRID CONFIGURATIONS (PRESETS)
+#  Use these to compare different levels of abstraction granularity.
+# ==============================================================================
+GRID_PRESETS = {
+    'debug': {
+        'resolution': (5.0, 2.0, 1.0),  # Very coarse, minimal states
+        'description': "Super fast generation, physics will be very rough."
+    },
+    'coarse': {
+        'resolution': (2.0, 1.0, 0.5),  # Low resolution
+        'description': "Good for initial connectivity checks."
+    },
+    'medium': {
+        'resolution': (1.0, 0.5, 0.25), # Standard Thesis Baseline
+        'description': "Balanced trade-off between accuracy and state space size."
+    },
+    'fine': {
+        'resolution': (0.5, 0.1, 0.1),  # High Fidelity
+        'description': "High precision, captures subtle physics (approx. 50k+ states)."
+    }
+}
 
-    def state_to_index(self, d, ve, vl):
+class Grid:
+    def __init__(self, preset='medium', custom_resolution=None, x_bounds=(0, 100), v_bounds=(0, 30), a_bounds=(-10, 5)):
         """
-        Maps continuous values (12.5m) to a grid index (Cell #2).
+        Defines the discrete partition of the state space.
+        
+        Args:
+            preset (str): Name of the configuration to use ('debug', 'coarse', 'medium', 'fine').
+            custom_resolution (tuple): Optional override (x_res, v_res, a_res).
+            x_bounds, v_bounds, a_bounds: Min/Max limits for the world.
         """
-        # Clamp values to stay inside grid
-        d = np.clip(d, self.d_min, self.d_max)
-        ve = np.clip(ve, self.v_min, self.v_max)
-        vl = np.clip(vl, self.v_min, self.v_max)
-        
-        # Find nearest index
-        idx_d = int(round((d - self.d_min) / self.d_step))
-        idx_ve = int(round((ve - self.v_min) / self.v_step))
-        idx_vl = int(round((vl - self.v_min) / self.v_step))
-        
-        # Ensure we don't go out of bounds (due to rounding)
-        idx_d = min(idx_d, len(self.d_grid) - 1)
-        idx_ve = min(idx_ve, len(self.ve_grid) - 1)
-        idx_vl = min(idx_vl, len(self.vl_grid) - 1)
-        
-        return (idx_d, idx_ve, idx_vl)
+        # 1. Load Resolution from Preset or Custom Override
+        if custom_resolution:
+            self.resolution = custom_resolution
+            self.description = "Custom User Resolution"
+        else:
+            if preset not in GRID_PRESETS:
+                raise ValueError(f"Unknown preset '{preset}'. Available: {list(GRID_PRESETS.keys())}")
+            
+            config = GRID_PRESETS[preset]
+            self.resolution = config['resolution']
+            self.description = config['description']
 
-    def index_to_state(self, idx_tuple):
-        """
-        Returns the 'Center Point' of a grid cell.
-        Used to simulate transitions from this cell.
-        """
-        d = self.d_grid[idx_tuple[0]]
-        ve = self.ve_grid[idx_tuple[1]]
-        vl = self.vl_grid[idx_tuple[2]]
-        return np.array([d, ve, vl])
+        self.bounds = [x_bounds, v_bounds, a_bounds]
+        
+        # 2. Create Bins with Center-Offset Logic
+        # We offset by -res/2 so that integer values (e.g., v=20.0) land in the CENTER of a cell.
+        self.bins = [
+            np.arange(b[0] - r/2, b[1] + r + r/2, r) 
+            for b, r in zip(self.bounds, self.resolution)
+        ]
+        
+        # 3. Calculate Properties
+        self.shape = tuple(len(b) - 1 for b in self.bins)
+        self.total_states = np.prod(self.shape)
+        
+    def __repr__(self):
+        return f"<Grid: {self.description} | Res: {self.resolution} | States: {self.total_states}>"
 
-    def get_all_states(self):
+    def state_to_index(self, continuous_state):
         """
-        Iterator to loop through every single cell in the grid.
+        Maps [x, v, a] -> (ix, iv, ia). Returns None if out of bounds.
         """
-        ranges = [range(s) for s in self.shape]
-        return itertools.product(*ranges)
+        indices = []
+        for i, val in enumerate(continuous_state):
+            idx = np.digitize(val, self.bins[i]) - 1
+            if idx < 0 or idx >= self.shape[i]:
+                return None
+            indices.append(idx)
+        return tuple(indices)
+
+    def index_to_cell_center(self, index_tuple):
+        """Returns the continuous center point of a cell."""
+        center = []
+        for i, idx in enumerate(index_tuple):
+            low = self.bins[i][idx]
+            high = self.bins[i][idx+1]
+            center.append((low + high) / 2.0)
+        return np.array(center)
+
+    def get_cell_bounds(self, index_tuple):
+        """Returns list of (min, max) for integration."""
+        bounds = []
+        for i, idx in enumerate(index_tuple):
+            low = self.bins[i][idx]
+            high = self.bins[i][idx+1]
+            bounds.append((low, high))
+        return bounds
+    
+    def get_flat_index(self, index_tuple):
+        """(ix, iv, ia) -> int ID"""
+        return np.ravel_multi_index(index_tuple, self.shape)
+    
+    def get_tuple_index(self, flat_index):
+        """int ID -> (ix, iv, ia)"""
+        return np.unravel_index(flat_index, self.shape)
