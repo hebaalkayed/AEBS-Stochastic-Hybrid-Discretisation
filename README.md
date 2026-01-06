@@ -12,6 +12,7 @@ The primary goal of this project is to serve as a ground-truth benchmark for **F
 * **Dual Control Logic:**
     * **Industry Mode:** Standard "Impact Mitigation" logic (brakes late, high efficiency).
     * **Safe Mode:** Formally verifiable "Collision Avoidance" logic (brakes early, high safety).
+* **PRISM Integration:** Exports .prism artifacts ready for PCTL model checking (e.g., Pmax=? [ F "crash" ]).
 
 ## Simulation Scenarios
 The environment module supports 5 critical testing scenarios standard in the automotive industry:
@@ -56,10 +57,24 @@ The main experiment script is interactive. It allows you to mix and match scenar
 python experiments/run_full_comparison.py
 ```
 
-Follow the on-screen prompts:
-1.  **Choose Scenario:** (e.g., `highway_cutout`)
-2.  **Choose Controller:** (`industry` for baseline, `safe` for verified logic)
-3.  **Set Noise:** (`0.0` for perfect sensors, `0.5` for 50% sensor failure rate)
+### Follow the on-screen prompts:
+
+1.  **Select Lead Behavior:**
+    * `1. Static`: A wall or stopped car (tests collision avoidance).
+    * `2. Steady`: A lead vehicle moving at constant speed (tests ACC/tailgating).
+    * `3. Unpredictable`: An unpredictable driver (tests reaction time to erratic braking).
+
+2.  **Configure Physics:**
+    * Input the **Initial Gap** (meters) and **Ego Velocity** (m/s).
+    * *(If non-static)* Input the **Lead Velocity** (m/s).
+
+3.  **Select Controller:**
+    * `1. Industry`: Uses standard Euro NCAP thresholds (brakes late, prioritizes comfort).
+    * `2. Safe`: Uses the Formally Verified logic (brakes early, prioritizes safety guarantees).
+
+4.  **Analyze & Repeat:**
+    * A graph will appear showing **Gap (Blue)** and **Velocity (Orange)**.
+    * Close the graph window to immediately run a new scenario (e.g., to test the same physics against a different controller).
 
 ## Project Structure
 ```text
@@ -75,6 +90,20 @@ Follow the on-screen prompts:
 │   └── run_full_comparison.py  # Interactive CLI for running tests
 └── README.md
 ```
+
+## Workflow & Verification
+This script runs the physics engine, discretizes the state space, calculates transition probabilities (integrating noise), and exports the Hybrid MDP.
+
+```bash
+python tests/verify_relative_model.py
+```
+
+* **Input:** src/system/vehicle_plant.py (Physics) + src/system/controller.py (Logic).
+* **Output:** artifacts/relative_model.prism
+* **Verify in PRISM:**
+1.  **open PRISM**
+2.  **Load artifacts/relative_model.prism**
+3.  **Go to the Properties tab and run: Pmax=? [ F "crash" ]**
 
 ## Scientific Context
 This repository represents the "Concrete System" in the Abstraction-Refinement loop. 

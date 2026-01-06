@@ -2,85 +2,92 @@ import numpy as np
 
 class TrafficEnvironment:
     """
-    Manages Road Scenarios based on Euro NCAP and ISO Benchmarks.
+    The Source of Truth.
+    Manages the 'Real World' dynamics of the Lead Vehicle based on User Configuration.
     """
-    def __init__(self, dt=0.2):
+    def __init__(self, dt=0.1):
         self.dt = dt
-        self.scenario = None
-        self.ego_speed = 0.0
-        self.lead_speed = 0.0
+        
+        # Scenario Configuration (Set by User/CMD)
+        self.lead_type = 'static' 
+        
+        # Physical State (Ground Truth)
         self.gap = 0.0
-        self.lead_behavior = 'static'
+        self.ego_velocity = 0.0
+        self.lead_velocity = 0.0
+        self.lead_acceleration = 0.0
         
-        self.time_elapsed = 0.0
-        self.noise_std = 1.0
+        # --- STOCHASTIC KNOBS (Tweaked for Chaos) ---
+        # 1. Base Noise: Standard "wobbly" driving
+        self.noise_std = 2.0  
+        
+        # 2. Jerk Probability: Chance of a sudden event per time step
+        # If dt=0.1, 0.05 means roughly one "event" every 2 seconds.
+        self.jerk_probability = 0.05 
 
-    def reset(self, scenario_type):
+    def configure(self, scenario_type, initial_gap, initial_ego_v, initial_lead_v):
         """
-        Sets initial conditions based on Industry Standards.
-        Returns: initial_state_vector [Gap, V_ego, V_lead]
+        INJECTION POINT: Initializing the scenario parameters from the CMD/User.
         """
-        self.scenario = scenario_type
-        self.time_elapsed = 0.0
+        self.lead_type = scenario_type
+        self.gap = float(initial_gap)
+        self.ego_velocity = float(initial_ego_v)
+        self.lead_velocity = float(initial_lead_v)
+        self.lead_acceleration = 0.0
         
-        # --- SCENARIO 1: URBAN (AEB City) ---
-        # Ref: Euro NCAP AEB City Protocol
-        # Test Range: 10-50 km/h.
-        # We use 36 km/h (10 m/s) as the standard urban baseline.
-        if scenario_type == 'urban_static':
-            self.ego_speed = 10.0  # 36 km/h
-            self.lead_speed = 0.0
-            self.gap = 40.0        # Standard visual range start
-            self.lead_behavior = 'static'
+        print(f"[Environment] Configured: Type={self.lead_type}, Gap={self.gap}m, LeadV={self.lead_velocity}m/s")
 
-        elif scenario_type == 'urban_cutout':
-            # Simulates a 'Cut-Out' or late detection.
-            # TTC = 1.5s (Reaction time boundary). 
-            # Gap = 10 m/s * 1.5s = 15.0m
-            self.ego_speed = 10.0
-            self.lead_speed = 0.0
-            self.gap = 15.0        
-            self.lead_behavior = 'static'
+    def update_physics(self, ego_displacement, ego_velocity):
+        """
+        Advances the world one time step.
+        """
+        # A. Determine Lead Dynamics
+        if self.lead_type == 'static':
+            self.lead_acceleration = 0.0
+            self.lead_velocity = 0.0
             
-        # --- SCENARIO 2: HIGHWAY (AEB Inter-Urban) ---
-        # Ref: Euro NCAP AEB Inter-Urban Protocol
-        # Stress Test Limit: 90 km/h (25 m/s).
-        elif scenario_type == 'highway_static':
-            self.ego_speed = 25.0  # 90 km/h
-            self.lead_speed = 0.0
-            self.gap = 120.0       # Long range radar detection
-            self.lead_behavior = 'static'
-
-        elif scenario_type == 'highway_cutout':
-            # The "Impossible" Physics Test.
-            # Stopping Dist @ 25m/s (-9.8m/s^2) is ~32m.
-            # We set Gap to 40m (1.6s TTC) -> The absolute edge of safety.
-            self.ego_speed = 25.0
-            self.lead_speed = 0.0
-            self.gap = 40.0        
-            self.lead_behavior = 'static'
+        elif self.lead_type == 'steady':
+            self.lead_acceleration = 0.0
+            # lead_velocity stays constant
             
-        elif scenario_type == 'highway_traffic':
-            self.ego_speed = 25.0
-            self.lead_speed = 25.0 
-            self.gap = 40.0        
-            self.lead_behavior = 'unpredictable'
+        elif self.lead_type == 'unpredictable':
+            # 1. Base Noise (Gaussian Walk) - The car drifts in speed
+            base_accel = np.random.normal(0, self.noise_std)
             
-        else:
-            raise ValueError(f"Unknown scenario: {scenario_type}")
+            # 2. "Event" Logic (The Chaos)
+            # We roll a die to see if the driver does something crazy
+            if np.random.rand() < self.jerk_probability:
+                # 50/50 chance of Hard Brake vs Hard Acceleration
+                if np.random.rand() < 0.5:
+                    base_accel = -8.0 # HARD BRAKE CHECK!
+                else:
+                    base_accel = 5.0  # TRY TO RUN AWAY
+            
+            self.lead_acceleration = base_accel
+            self.lead_velocity += self.lead_acceleration * self.dt
+            
+            # Physics Constraints (prevent reversing or going supersonic)
+            if self.lead_velocity < 0: self.lead_velocity = 0.0
+            if self.lead_velocity > 50: self.lead_velocity = 50.0
 
-        return np.array([self.gap, self.ego_speed, self.lead_speed])
-
-    def get_lead_action(self):
-        u_lead = 0.0
+        # B. Calculate Lead Displacement
+        lead_displacement = self.lead_velocity * self.dt
         
-        if self.lead_behavior == 'static':
-            u_lead = 0.0
-        elif self.lead_behavior == 'unpredictable':
-            u_lead = np.random.normal(0, self.noise_std)
-            
-        self.lead_speed += u_lead * self.dt
-        if self.lead_speed < 0: self.lead_speed = 0
-        self.time_elapsed += self.dt
+        # C. Update Gap (Gap shrinks if Ego > Lead)
+        self.gap = self.gap - (ego_displacement - lead_displacement)
         
-        return u_lead
+        # Update internal ego record for plotting/logging
+        self.ego_velocity = ego_velocity
+        
+        return self.get_ground_truth()
+
+    def get_ground_truth(self):
+        """
+        Returns the raw, perfect state of the world.
+        """
+        return {
+            'gap': self.gap,
+            'v_ego': self.ego_velocity,
+            'v_lead': self.lead_velocity,
+            'v_rel': self.ego_velocity - self.lead_velocity # Closing speed
+        }
