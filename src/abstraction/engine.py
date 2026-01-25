@@ -76,9 +76,9 @@ class AbstractionEngine:
             for dim in range(3): # x, v, a
                 low, high = bounds[dim]
                 mean = next_center_state[dim]
-                sigma = self.plant.noise_std
+                sigma = self.plant.noise_std # Assuming same std for all dims, play around with later
                 
-                # CDF(high) - CDF(low)
+                # Cumulative Density Function(high) - Cumulative Density Function(low)
                 if sigma > 0:
                     p_dim = norm.cdf(high, loc=mean, scale=sigma) - norm.cdf(low, loc=mean, scale=sigma)
                 else:

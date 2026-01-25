@@ -33,7 +33,7 @@ class Grid:
             custom_resolution (tuple): Optional override (x_res, v_res, a_res).
             x_bounds, v_bounds, a_bounds: Min/Max limits for the world.
         """
-        # 1. Load Resolution from Preset or Custom Override
+        # 1. Load Resolution from Preset or Custom Override - create a finite grid of gap and velocity
         if custom_resolution:
             self.resolution = custom_resolution
             self.description = "Custom User Resolution"
@@ -61,7 +61,7 @@ class Grid:
     def __repr__(self):
         return f"<Grid: {self.description} | Res: {self.resolution} | States: {self.total_states}>"
 
-    def state_to_index(self, continuous_state):
+    def state_to_index(self, continuous_state): # continuous values to cell IDs.
         """
         Maps [x, v, a] -> (ix, iv, ia). Returns None if out of bounds.
         """
@@ -73,7 +73,7 @@ class Grid:
             indices.append(idx)
         return tuple(indices)
 
-    def index_to_cell_center(self, index_tuple):
+    def index_to_cell_center(self, index_tuple): # select single representative point for each cell
         """Returns the continuous center point of a cell."""
         center = []
         for i, idx in enumerate(index_tuple):

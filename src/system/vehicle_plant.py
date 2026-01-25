@@ -21,7 +21,7 @@ class VehiclePlant:
         
         # Dynamics Parameters
         self.alpha = alpha  # Lag factor
-        self.dt = dt
+        self.dt = dt # Time step,  decision loop runs 10 times a second
         self.coordinate_system = coordinate_system 
         
         # Abstraction Parameters
@@ -84,7 +84,7 @@ class VehiclePlant:
             [0.0, 1.0,                 (1 - self.alpha) * self.dt],
             [0.0, 0.0,                 (1 - self.alpha)]
         ])
-        return np.linalg.norm(A, ord=2)
+        return np.linalg.norm(A, ord=2) # Lipschitz Constant
 
     @property
     def noise_std(self):
