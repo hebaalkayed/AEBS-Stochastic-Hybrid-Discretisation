@@ -1,7 +1,10 @@
 import numpy as np
 from scipy.stats import norm
+
+from src.system.vehicle_plant import VehiclePlant 
+from src.abstraction.grid import Grid
+
 import itertools
-from .grid import Grid
 
 class AbstractionEngine:
     def __init__(self, plant, grid):
