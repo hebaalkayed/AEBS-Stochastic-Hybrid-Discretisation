@@ -12,6 +12,7 @@ env/
 .idea/
 
 # Simulation artifacts
+artifacts/
 *.png
 *.log
 *.prism
