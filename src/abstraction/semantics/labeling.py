@@ -1,69 +1,37 @@
-from dataclasses import dataclass
-from typing import List, Set
-
 class Labels:
     CRASH = "crash"
     SAFE = "safe"
-    BRAKING = "braking"      # AEB Active (Warn Level)
-    EMERGENCY = "emergency"  # Panic Braking Active
+    BRAKING = "braking"
+    EMERGENCY = "emergency"
 
 class LabelingGrammar:
-    """
-    Defines the Semantic Mapping L(s).
-    Maps Physical States (Gap, Velocity) -> Semantic Labels.
-    Now implements DUAL-TRIGGER LOGIC (Distance OR TTC).
-    """
     def __init__(self, controller):
-        # 1. Extract Distance Thresholds
+        # Dynamic binding to controller thresholds
         self.dist_warn = getattr(controller, 'dist_warn', 15.0)
         self.dist_crit = getattr(controller, 'dist_emergency', 5.0)
-        
-        # 2. Extract TTC Thresholds (The missing link!)
-        self.ttc_warn = getattr(controller, 'ttc_warn', 2.6) # Default Industry standard
+        self.ttc_warn = getattr(controller, 'ttc_warn', 2.6)
         self.ttc_crit = getattr(controller, 'ttc_emergency', 1.6)
 
-    def get_labels(self, continuous_state) -> List[str]:
+    def get_labels(self, state):
         """
-        Evaluates s |= alpha.
-        Args:
-            continuous_state: Tuple (Gap, V_rel, Accel)
+        Returns list of labels satisfied by state (Gap, V, A).
+        Implements Dual-Trigger Logic (Distance OR TTC).
         """
-        gap = continuous_state[0]
-        v_rel = continuous_state[1] # We now use Velocity!
+        gap, v_rel = state[0], state[1]
+        props = set()
         
-        satisfied_props = set()
-
-        # --- Rule 1: CRASH (Physics) ---
-        if gap <= 0.0:
-            satisfied_props.add(Labels.CRASH)
-            return list(satisfied_props) # Terminal state
-        else:
-            satisfied_props.add(Labels.SAFE)
-
-        # --- Rule 2: CALCULATE TTC ---
-        # TTC is infinite if we are opening the gap (v_rel < 0)
-        if v_rel > 0.1:
-            ttc = gap / v_rel
-        else:
-            ttc = 999.0
-
-        # --- Rule 3: DUAL-TRIGGER LOGIC (The Fix) ---
+        if gap <= 0:
+            return [Labels.CRASH]
+        props.add(Labels.SAFE)
         
-        # Condition A: Standard Braking
-        # Triggered if Gap is too small OR TTC is too low
+        # Calculate TTC (avoid divide by zero)
+        ttc = gap / v_rel if v_rel > 0.1 else 999.0
+        
+        # Check Safety Rules
         if (gap < self.dist_warn) or (ttc < self.ttc_warn):
-            satisfied_props.add(Labels.BRAKING)
-
-        # Condition B: Emergency Braking
-        # Triggered if Gap is critical OR TTC is critical
+            props.add(Labels.BRAKING)
+            
         if (gap < self.dist_crit) or (ttc < self.ttc_crit):
-            satisfied_props.add(Labels.EMERGENCY)
-
-        return list(satisfied_props)
-
-    def __repr__(self):
-        return (
-            f"<Grammar | "
-            f"Warn: (Dist<{self.dist_warn}m | TTC<{self.ttc_warn}s), "
-            f"Crit: (Dist<{self.dist_crit}m | TTC<{self.ttc_crit}s)>"
-        )
+            props.add(Labels.EMERGENCY)
+        
+        return list(props)
