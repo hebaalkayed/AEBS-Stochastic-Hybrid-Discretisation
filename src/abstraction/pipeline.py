@@ -1,15 +1,13 @@
 import os
+import itertools
 from src.abstraction.types.grid import Grid
 from src.abstraction.algorithms.discretizer import DiscretizationAlgorithm
-from src.abstraction.modules.wrappers import PlantWrapper, ControllerWrapper
+from src.abstraction.modules.wrappers import PlantWrapper
 from src.abstraction.semantics.labeling import LabelingGrammar
 
 def run_modular_abstraction(plant, controller, grid_preset='medium'):
     """
     The High-Level Orchestrator.
-    1. Wraps your Concrete Models (Plant/Controller).
-    2. Runs the Generic Discretization Algorithm.
-    3. Exports the Modular .prism file.
     """
     print(f"\n[Pipeline] Starting Modular Abstraction (Preset: {grid_preset})...")
     
@@ -18,22 +16,39 @@ def run_modular_abstraction(plant, controller, grid_preset='medium'):
     algo = DiscretizationAlgorithm(grid)
     
     # 2. Run Abstraction (The Heavy Lifting)
-    # A. Physics Module
+    # A. Physics Module (Uses Gaussian Integration)
     print("[Pipeline] Module 1/2: Vehicle Plant")
-    plant_imdp = algo.run(PlantWrapper(plant), name="Plant")
+    plant_imdp = algo.run(PlantWrapper(plant, controller), name="Plant")    
     
-    # B. Logic Module
-    print("[Pipeline] Module 2/2: AEBS Controller")
-    ctrl_imdp = algo.run(ControllerWrapper(controller), name="Controller")
+    # B. Logic Module (Direct Synthesis)
+    # FIX: We generate the controller logic directly to avoid coordinate mapping errors.
+    print("[Pipeline] Module 2/2: AEBS Controller (Direct Synthesis)")
+    ctrl_lookup = {}
+    
+    # Pre-calculate map
+    action_map = {'coast': 0, 'brake_warn': 1, 'brake_full': 2}
+    
+    # Iterate over all grid centers and query the controller
+    for idx in itertools.product(*[range(d) for d in grid.shape]):
+        flat_id = grid.get_flat_index(idx)
+        center = grid.index_to_cell_center(idx)
+        
+        # s = [Gap, V_rel, V_ego]
+        gap, v = center[0], center[1]
+        
+        # Query Controller
+        act_name = controller.get_action_name_for_state(gap, v, 0, plant_coords='relative_frame')
+        act_id = action_map.get(act_name, 0)
+        
+        ctrl_lookup[flat_id] = act_id
     
     # 3. Export to PRISM
-    # We consolidate them into one file with the synchronization logic
     output_path = "artifacts/modular_system.prism"
-    _export_composed_system(plant_imdp, ctrl_imdp, controller, grid, output_path)
+    _export_composed_system(plant_imdp, ctrl_lookup, controller, grid, output_path)
     
     return output_path
 
-def _export_composed_system(plant_imdp, ctrl_imdp, controller, grid, filename):
+def _export_composed_system(plant_imdp, ctrl_lookup, controller, grid, filename):
     """
     Helper to write the Parallel Composition logic.
     """
@@ -57,25 +72,21 @@ def _export_composed_system(plant_imdp, ctrl_imdp, controller, grid, filename):
         # 3. Module: Plant (From IMDP)
         f.write(plant_imdp.to_prism_module("Plant", sync_label="time_step", state_var="s", action_var="u"))
         
-        # 4. Module: Perception (Placeholder / Passthrough)
+        # 4. Module: Perception (Passthrough)
         f.write("\nmodule Perception\n")
         f.write(f"    y : [0..{grid.total_states-1}] init 0;\n")
         f.write("    [perceive] true -> (y'=s);\n")
         f.write("endmodule\n")
 
-        # 5. Module: Controller (From IMDP)
-        # Note: We manually inject the 'u' update logic since the Generic IMDP 
-        # stores the transition Target ID, which corresponds to the Action ID here.
+        # 5. Module: Controller (From Lookup Table)
         f.write("\nmodule Controller\n")
         f.write(f"    // Logic updates global u based on local y\n")
         
-        # We sort to ensure deterministic file output
-        for src in sorted(ctrl_imdp.transitions.keys()):
-            actions = ctrl_imdp.transitions[src]
-            for _, targets in actions.items():
-                 # For the controller wrapper, the target_id IS the decision (u)
-                 decision = targets[0].target_id 
-                 f.write(f"    [control] (y={src}) -> (u'={decision});\n")
+        # Write lookup table
+        for src_id in sorted(ctrl_lookup.keys()):
+            decision = ctrl_lookup[src_id]
+            f.write(f"    [control] (y={src_id}) -> (u'={decision});\n")
+            
         f.write("endmodule\n")
 
         # 6. Labels (Semantics)

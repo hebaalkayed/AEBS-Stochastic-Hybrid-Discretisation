@@ -16,3 +16,4 @@ artifacts/
 *.png
 *.log
 *.prism
+*.props

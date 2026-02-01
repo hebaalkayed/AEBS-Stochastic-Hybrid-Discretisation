@@ -1,5 +1,6 @@
 import sys
 import os
+import time 
 
 # Add project root to python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -12,16 +13,22 @@ def main():
     print("--- STARTING MODULAR ABSTRACTION EXPERIMENT ---")
     
     # 1. Setup Concrete System
-    # We use 'coarse' for a fast test run (approx 1-2 mins)
-    # Switch to 'medium' for the final thesis generation (approx 15 mins)
-    grid_preset = 'coarse' 
-    
+    # 'medium' is the target for the abstraction (approx 375k states)
+    grid_preset = 'medium' 
+    print(f"Configuration: Preset='{grid_preset}' | Cores=ALL")
+
     plant = VehiclePlant(coordinate_system='relative_frame')
     controller = AEBSController(mode='safe')
     
-    # 2. Run the Pipeline
+    # 2. Run the Pipeline with Timer
+    start_time = time.time()
+    
     output_file = run_modular_abstraction(plant, controller, grid_preset)
     
+    end_time = time.time()
+    duration = end_time - start_time
+    
+    print(f"SUCCESS! Generation took {duration:.2f} seconds ({duration/60:.2f} minutes).")
     print(f"Generated PRISM file: {os.path.abspath(output_file)}")
 
 if __name__ == "__main__":
