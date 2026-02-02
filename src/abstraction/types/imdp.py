@@ -1,53 +1,66 @@
-from dataclasses import dataclass, field
-from typing import Dict, List
+from collections import defaultdict
 
-@dataclass
-class IntervalTransition:
-    """Represents T(s, a, s') = [p_min, p_max]"""
-    target_id: int
-    p_min: float
-    p_max: float
-
-@dataclass
 class IMDP:
     """
-    The Mathematical Artifact produced by the Discretization Algorithm.
-    Independent of PRISM syntax.
+    A self-contained representation of an Interval Markov Decision Process.
+    Holds logic, transitions, and semantics. 
+    Updated to support 'Streaming' to prevent MemoryErrors.
     """
-    name: str
-    num_states: int
-    initial_state: int = 0
-    # transitions[src][action] -> List[IntervalTransition]
-    transitions: Dict[int, Dict[int, List[IntervalTransition]]] = field(default_factory=dict)
-    
-    def add_transition(self, src: int, action: int, target: int, p_min: float, p_max: float):
-        if src not in self.transitions: self.transitions[src] = {}
-        if action not in self.transitions[src]: self.transitions[src][action] = []
-        self.transitions[src][action].append(IntervalTransition(target, p_min, p_max))
+    def __init__(self, name, state_variable="s", action_variable="u"):
+        self.name = name
+        self.state_var = state_variable
+        self.action_var = action_variable
+        
+        # Structure: {source_state: {action_id: "target_distribution_string"}}
+        self.transitions = defaultdict(dict)
+        
+        # Semantics: {"label_name": {set_of_state_indices}}
+        self.labels = defaultdict(set)
+        
+        self.initial_state = 0
+        self.max_state_id = 0
+        self.sink_state_id = None
 
-    def to_prism_module(self, module_name, sync_label, state_var="s", action_var="u") -> str:
-        """Exports to PRISM module syntax."""
-        lines = [f"\nmodule {module_name}"]
-        lines.append(f"    {state_var} : [0..{self.num_states-1}] init {self.initial_state};")
+    def add_transition(self, source, action, distribution_str):
+        """Adds a transition logic to the model."""
+        self.transitions[source][action] = distribution_str
+        if source > self.max_state_id:
+            self.max_state_id = source
+
+    def add_label(self, label_name, state_id):
+        self.labels[label_name].add(state_id)
+
+    def add_bulk_label(self, label_name, state_ids):
+        self.labels[label_name].update(state_ids)
+
+    def finalize_sink_state(self):
+        """Creates a self-looping sink state to catch out-of-bounds transitions."""
+        self.sink_state_id = self.max_state_id + 1
         
-        # Sort for stable output
+        # Self-Loop with certainty
+        sink_str = f"[1.0, 1.0] : ({self.state_var}'={self.sink_state_id})"
+        
+        # Assign to Action 0 (Coast)
+        self.transitions[self.sink_state_id][0] = sink_str
+        
+        # Label it structurally
+        self.add_label("safe_sink", self.sink_state_id)
+        
+        print(f"[{self.name}] Finalized with Sink State at {self.state_var}={self.sink_state_id}")
+        return self.sink_state_id
+
+    def write_prism_body(self, f, sync_label="time_step"):
+        """
+        STREAM-WRITES the module body to the file handle 'f'.
+        This is critical for avoiding MemoryErrors with large models.
+        """
+        # Define variable range including the sink state
+        limit = self.sink_state_id if self.sink_state_id else self.max_state_id
+        f.write(f"    {self.state_var} : [0..{limit}] init {self.initial_state};\n")
+        
+        # Write transitions line-by-line
         for src in sorted(self.transitions.keys()):
-            for act, targets in sorted(self.transitions[src].items()):
-                if not targets: continue
-                
-                updates = []
-                for t in targets:
-                    # Clamp probabilities to [0, 1]
-                    p_min = max(0.0, min(1.0, t.p_min))
-                    p_max = max(0.0, min(1.0, t.p_max))
-                    updates.append(f"[{p_min:.5f}, {p_max:.5f}] : ({state_var}'={t.target_id})")
-                
-                # PRISM Guard: (s=src) & (u=act)
-                guard = f"({state_var}={src})"
-                if action_var: 
-                    guard += f" & ({action_var}={act})"
-                
-                lines.append(f"    [{sync_label}] {guard} -> {' + '.join(updates)};")
-        
-        lines.append("endmodule")
-        return "\n".join(lines)
+            actions = self.transitions[src]
+            for act, dist in sorted(actions.items()):
+                line = f"    [{sync_label}] ({self.state_var}={src}) & ({self.action_var}={act}) -> {dist};\n"
+                f.write(line)
