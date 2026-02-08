@@ -5,10 +5,12 @@ class ControllerModel:
     Represents the deterministic logic of the AEBS Controller.
     Automatically compresses logic into ranges to minimize PRISM file size.
     """
-    def __init__(self, name="Controller", input_var="y", output_var="u"):
+    def __init__(self, name="Controller", input_var="y", output_var="u", variable_def=None):
         self.name = name
         self.input_var = input_var
         self.output_var = output_var
+        # FIX: Allow defining the local variable (e.g., "u : [0..2] init 0;")
+        self.variable_def = variable_def 
         self.rules = {} # {y_value: u_value}
         self.labels = {} # Interface consistency
 
@@ -21,7 +23,11 @@ class ControllerModel:
         Stream-writes compressed PRISM logic to file handle 'f'.
         Uses Run-Length Encoding to group consecutive states.
         """
-        f.write(f"    // Logic updates global {self.output_var} based on local {self.input_var}\n")
+        # FIX: Write the local variable definition here (Ownership)
+        if self.variable_def:
+            f.write(f"    {self.variable_def}\n")
+
+        f.write(f"    // Logic updates local {self.output_var} based on {self.input_var}\n")
         f.write(f"    // Logic compressed from {len(self.rules)} explicit rules.\n")
         
         # 1. Sort by perceived state

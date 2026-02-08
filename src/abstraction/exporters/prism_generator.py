@@ -40,6 +40,7 @@ class PrismModelGenerator:
     def _write_header(self, f, globals_dict):
         f.write("// --- MODULAR AEBS MODEL (Robust IMDP) ---\n")
         f.write("mdp\n\n")
+        # Only write globals if explicitly passed (Cleaned up for ownership fix)
         if globals_dict:
             for name, defn in globals_dict.items():
                 f.write(f"global {name} : {defn};\n")
@@ -47,6 +48,8 @@ class PrismModelGenerator:
 
     def _write_turn_module(self, f):
         f.write("module Turn\n")
+        # FIX: 't' is now a LOCAL variable owned by Turn
+        f.write("    t : [1..3] init 1;\n") 
         f.write("    [time_step] (t=1) -> (t'=2);\n")
         f.write("    [perceive]  (t=2) -> (t'=3);\n")
         f.write("    [control]   (t=3) -> (t'=1);\n")
@@ -61,7 +64,7 @@ class PrismModelGenerator:
         if module.name == "Controller": sync_label = "control"
         if module.name == "Perception": sync_label = "perceive"
         
-        # --- FIX 1: USE STREAMING WRITE INSTEAD OF GET ---
+        # Use Streaming Write
         if hasattr(module, 'write_prism_body'):
             module.write_prism_body(f, sync_label)
         else:
@@ -79,11 +82,10 @@ class PrismModelGenerator:
             if not states:
                 continue
 
-            # --- FIX 2: INTERVAL COMPRESSION FOR LABELS ---
+            # Interval Compression for Labels
             sorted_states = sorted(list(states))
             ranges = []
             
-            # Logic to find consecutive runs (1, 2, 3 -> 1..3)
             if len(sorted_states) > 0:
                 start = sorted_states[0]
                 prev = sorted_states[0]

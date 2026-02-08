@@ -5,7 +5,7 @@ from src.abstraction.algorithms.discretizer import DiscretizationAlgorithm
 from src.abstraction.modules.wrappers import PlantWrapper
 from src.abstraction.semantics.labeling import LabelingGrammar
 from src.abstraction.types.abstracted_controller import ControllerModel
-from src.abstraction.types.perception_model import PerceptionModel # <--- NEW
+from src.abstraction.types.perception_model import PerceptionModel
 from src.abstraction.exporters.prism_generator import PrismModelGenerator
 
 def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perception_noise=False):
@@ -24,19 +24,26 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     plant_imdp = algo.run(PlantWrapper(plant, controller), name="Plant")
     sink_id = plant_imdp.finalize_sink_state()
     
+    # Labeling
     plant_imdp.add_label("crash", 0)
-    plant_imdp.add_label("initial", 0)
+    # Note: We set "initial" label dynamically below, not hardcoded to 0 anymore.
     safe_states = [i for i in range(1, sink_id)] 
     plant_imdp.add_bulk_label("safe_physics", safe_states)
     
     # --- MODULE 2: CONTROLLER ---
     print("[Pipeline] Module 2/3: AEBS Controller (Synthesis)")
-    ctrl_model = ControllerModel(name="Controller", input_var="y", output_var="u")
+    
+    # FIX: Pass variable definition here so it lives inside the module
+    ctrl_model = ControllerModel(
+        name="Controller", 
+        input_var="y", 
+        output_var="u",
+        variable_def="u : [0..2] init 0;" # Local definition
+    )
     
     action_map = {'coast': 0, 'brake_warn': 1, 'brake_full': 2}
     grammar = LabelingGrammar(controller)
-    label_map = {"braking": [], "warning": [], "emergency": [], "safe": []}
-
+    
     for idx in itertools.product(*[range(d) for d in grid.shape]):
         flat_id = grid.get_flat_index(idx)
         center = grid.index_to_cell_center(idx)
@@ -55,6 +62,25 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     # Controller Robustness (Sink)
     ctrl_model.add_rule(sink_id, 0)
 
+    # --- FIX: SET VALID INITIAL STATE ---
+    # We want to start at specific safe conditions to avoid instant crash (Result=1.0)
+    # Target: Gap=40m, Velocity=15m/s, Accel=0
+    start_values = (40.0, 15.0, 0.0)
+    
+    # Find the nearest grid index for these values
+    start_idx = grid.state_to_index(start_values)
+    
+    if start_idx is None:
+        print(f"[Warning] Start state {start_values} is out of bounds! Defaulting to middle.")
+        start_idx = tuple(d // 2 for d in grid.shape)
+    
+    # Convert to Flat ID and set it in the model
+    start_flat_id = grid.get_flat_index(start_idx)
+    plant_imdp.initial_state = start_flat_id
+    plant_imdp.add_label("initial", start_flat_id)
+    
+    print(f"[Pipeline] Initial State set to: {start_values} -> Flat ID {start_flat_id}")
+
     # --- MODULE 3: PERCEPTION ---
     print("[Pipeline] Module 3/3: Perception Layer")
     perception = PerceptionModel(
@@ -68,15 +94,11 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     # --- EXPORT ---
     output_path = "artifacts/modular_system.prism"
     
-    globals_dict = {
-        "t": "[1..3] init 1",
-        "u": "[0..2] init 0",
-        "y": f"[0..{sink_id}] init 0"
-    }
+    # FIX: Globals are empty now. Everything is local to modules.
+    globals_dict = {} 
     
     generator = PrismModelGenerator(output_path)
     
-    # This now uses the Streaming methods in the generator
     generator.generate(
         modules=[plant_imdp, perception, ctrl_model], 
         globals_dict=globals_dict

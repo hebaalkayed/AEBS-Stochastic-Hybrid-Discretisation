@@ -3,8 +3,10 @@ import numpy as np
 GRID_PRESETS = {
     'debug':  {'res': (5.0, 2.0, 1.0), 'desc': "Fast Debug"},
     'coarse': {'res': (2.0, 1.0, 0.5), 'desc': "Initial Checks"},
-    'medium': {'res': (1.0, 0.5, 0.25), 'desc': "Thesis Baseline"},
-    'fine':   {'res': (0.5, 0.1, 0.1), 'desc': "High Fidelity"}
+    'medium': {'res': (1.0, 0.5, 0.25), 'desc': "Baseline"},
+    'fine':   {'res': (0.5, 0.1, 0.1), 'desc': "High Fidelity"},
+    'optimized': {'res': (1.5, 0.75, 0.5), 'desc': "Memory Safe Medium"},
+    'light':  {'res': (1.5, 1.0, 1.0), 'desc': "Memory Safe Verification"}
 }
 
 class Grid:

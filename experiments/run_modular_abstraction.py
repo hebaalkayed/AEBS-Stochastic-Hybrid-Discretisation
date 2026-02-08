@@ -13,7 +13,7 @@ def main():
     print("--- STARTING MODULAR ABSTRACTION EXPERIMENT ---")
     
     # --- EXPERIMENT CONFIGURATION ---
-    GRID_PRESET = 'medium' 
+    GRID_PRESET = 'medium'  # Options: 'coarse', 'medium', 'fine'
     
     # Toggle this to switch modes:
     # False = Fast generation, Perfect Perception (Symbolic)

@@ -20,11 +20,9 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
     
     # 1. Pre-calculate Geometric Constants based on the Paper
     # Volume of the target cell (Lebesgue measure L_{<s'>})
-    # Equation (6): Error scales linearly with the volume of the target set.
     cell_volume = np.prod(grid_resolution)
     
     # Radius of the cell (Euclidean distance from center to corner)
-    # ||x - x_bar|| <= radius
     cell_radius = np.linalg.norm(grid_resolution / 2.0)
 
     # Local helper for index conversion
@@ -45,12 +43,9 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
         
         for act_id, act_val in system_action_space.items():
             # A. Query Physics
-            # Returns next_center, noise_std (sigma), and Lipschitz constant (L)
             next_c, sigma, L = system_wrapper.get_next_state_distribution(center, act_val)
             
             # B. Calculate Formal Error Bound (Paper Eq. 6)
-            # epsilon = Volume * L * Radius
-            # This is the "Lipschitz Expansion" term.
             epsilon = cell_volume * L * cell_radius
             
             # C. Compute Transition Kernel
@@ -84,6 +79,9 @@ def _compute_kernel_accurate(next_center, sigma, epsilon, bins, grid_shape, tota
     total_prob_mass = 0.0
     
     # 3. Integrate Gaussian Kernel
+    # Create a list to hold ALL possible transitions for this state
+    candidates = []
+
     for idx in itertools.product(*ranges):
         # Boundaries of the target cell
         bounds = [(bins[i][idx[i]], bins[i][idx[i]+1]) for i in range(3)]
@@ -101,31 +99,49 @@ def _compute_kernel_accurate(next_center, sigma, epsilon, bins, grid_shape, tota
                 # Deterministic case (Dirac delta)
                 prob *= (1.0 if low <= mean <= high else 0.0)
         
-        # 4. Apply Formal Error & Pruning
-        # We prune only if the *upper bound* is negligible to save space.
-        # Paper Definition 7: Interval is [max(0, p - e), min(1, p + e)]
+        # 4. Apply Formal Error
         p_min = max(0.0, prob - epsilon)
         p_max = min(1.0, prob + epsilon)
         
-        if p_max > 1e-5: # Keep if there's any chance of transition
+        if p_max > 0:
+            # Re-calculate flat index here to store it
             flat = 0
             mult = 1
             for i in reversed(range(3)):
                 flat += idx[i] * mult
                 mult *= grid_shape[i]
             
-            transitions[flat] = (p_min, p_max)
-            total_prob_mass += prob
+            candidates.append({
+                'id': flat, 
+                'min': p_min, 
+                'max': p_max, 
+                'prob': prob # Nominal probability (center of mass)
+            })
 
-    # 5. Sink State Logic
-    # Any probability mass not captured by the grid (out of bounds) goes to Sink.
-    # We apply the error bound to the sink transition as well.
+    # 5. SORT AND PRUNE (Top-5 + Epsilon Fix)
+    
+    # Sort candidates by their 'prob' (most likely center-mass first)
+    candidates.sort(key=lambda x: x['prob'], reverse=True)
+    
+    # KEEP ONLY THE TOP 5
+    # This guarantees the file size stays small (~50MB) regardless of grid size
+    top_k = candidates[:4]
+    
+    # Write to transitions map
+    for c in top_k:
+        # --- CRITICAL FIX: EPSILON PATCH ---
+        # We force the minimum probability to be at least 1e-6.
+        # This prevents PRISM's "Transition probability has lower bound of 0" error.
+        safe_min = max(c['min'], 1e-4)
+        
+        transitions[c['id']] = (safe_min, c['max'])
+        total_prob_mass += c['prob']
+
+    # 6. Sink State Logic
     sink_prob = max(0.0, 1.0 - total_prob_mass)
     if sink_prob > 1e-5:
-        # The error for the sink is the accumulation of errors? 
-        # For simplicity, we treat the sink as a single "rest of world" cell.
-        # Conservative approach: Sink inherits the same epsilon uncertainty.
-        s_min = max(0.0, sink_prob - epsilon)
+        # Apply epsilon fix to sink as well, just in case
+        s_min = max(max(0.0, sink_prob - epsilon), 1e-6)
         s_max = min(1.0, sink_prob + epsilon)
         transitions[total_states] = (s_min, s_max)
         
@@ -175,7 +191,7 @@ class DiscretizationAlgorithm:
                     updates = []
                     for tgt_id, (p_min, p_max) in transitions.items():
                         # Format as interval for PRISM: [min, max]
-                        updates.append(f"[{p_min:.5f}, {p_max:.5f}] : (s'={tgt_id})")
+                        updates.append(f"[{p_min:.8f}, {p_max:.8f}] : (s'={tgt_id})")
                     
                     distribution_str = " + ".join(updates)
                     imdp.add_transition(src_id, act_id, distribution_str)
