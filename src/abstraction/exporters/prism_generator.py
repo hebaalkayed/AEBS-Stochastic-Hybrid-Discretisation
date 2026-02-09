@@ -8,25 +8,26 @@ class PrismModelGenerator:
     def __init__(self, output_file):
         self.output_file = output_file
 
-    def generate(self, modules, globals_dict=None):
+    # UPDATED SIGNATURE: Added 'constants'
+    def generate(self, modules, globals_dict=None, constants=None):
         """
         :param modules: List of objects (IMDP, ControllerModel, etc.)
         :param globals_dict: Dictionary of global variables {name: range_str}
+        :param constants: Dictionary of constants {name: type} e.g. {'start_s': 'int'}
         """
         print(f"[Generator] Translating model to {self.output_file}...")
         os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
         
         with open(self.output_file, 'w') as f:
-            self._write_header(f, globals_dict)
+            # Pass constants to the header writer
+            self._write_header(f, globals_dict, constants)
             self._write_turn_module(f)
             
-            # The Generator simply iterates over the provided full logic blocks
             all_labels = {}
             
             for module in modules:
                 self._write_module(f, module)
                 
-                # Collect labels to write at the end of the file
                 if hasattr(module, 'labels'):
                     for name, states in module.labels.items():
                         if name not in all_labels:
@@ -37,10 +38,17 @@ class PrismModelGenerator:
             
         print(f"[Generator] Export Complete.")
 
-    def _write_header(self, f, globals_dict):
+    # UPDATED HEADER WRITER
+    def _write_header(self, f, globals_dict, constants):
         f.write("// --- MODULAR AEBS MODEL (Robust IMDP) ---\n")
         f.write("mdp\n\n")
-        # Only write globals if explicitly passed (Cleaned up for ownership fix)
+        
+        # Write Constants (New Feature)
+        if constants:
+            for name, dtype in constants.items():
+                f.write(f"const {dtype} {name};\n")
+        
+        # Write Globals
         if globals_dict:
             for name, defn in globals_dict.items():
                 f.write(f"global {name} : {defn};\n")
@@ -48,7 +56,6 @@ class PrismModelGenerator:
 
     def _write_turn_module(self, f):
         f.write("module Turn\n")
-        # FIX: 't' is now a LOCAL variable owned by Turn
         f.write("    t : [1..3] init 1;\n") 
         f.write("    [time_step] (t=1) -> (t'=2);\n")
         f.write("    [perceive]  (t=2) -> (t'=3);\n")
@@ -56,33 +63,27 @@ class PrismModelGenerator:
         f.write("endmodule\n\n")
 
     def _write_module(self, f, module):
-        """Delegates body generation to the module object."""
         f.write(f"module {module.name}\n")
         
-        # Determine sync label based on module name convention
         sync_label = "time_step" 
         if module.name == "Controller": sync_label = "control"
         if module.name == "Perception": sync_label = "perceive"
         
-        # Use Streaming Write
         if hasattr(module, 'write_prism_body'):
             module.write_prism_body(f, sync_label)
         else:
-            # Fallback for older legacy objects if any
             f.write(module.get_prism_body(sync_label))
             
         f.write("\nendmodule\n\n")
 
     def _write_labels(self, f, all_labels):
         f.write("// --- SEMANTIC LABELS ---\n")
-        # Assume labels map to Plant State 's'
         state_var = "s" 
         
         for name, states in all_labels.items():
             if not states:
                 continue
 
-            # Interval Compression for Labels
             sorted_states = sorted(list(states))
             ranges = []
             
@@ -99,7 +100,6 @@ class PrismModelGenerator:
                         prev = s
                 ranges.append((start, prev))
             
-            # Format logic string
             logic_parts = []
             for (start, end) in ranges:
                 if start == end:

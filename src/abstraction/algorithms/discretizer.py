@@ -125,7 +125,7 @@ def _compute_kernel_accurate(next_center, sigma, epsilon, bins, grid_shape, tota
     
     # KEEP ONLY THE TOP 5
     # This guarantees the file size stays small (~50MB) regardless of grid size
-    top_k = candidates[:4]
+    top_k = candidates[:3]
     
     # Write to transitions map
     for c in top_k:
