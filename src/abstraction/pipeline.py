@@ -61,13 +61,12 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     ctrl_model.add_rule(sink_id, 0)
 
     # --- DYNAMIC SCENARIO SETUP ---
-    # We define scenarios to debug why the model says "0.018" instead of "1.0"
     scenarios = {
-        "Safe_Cruise":       (40.0, 15.0, 0.0),
-        "Warning_Zone":      (25.0, 15.0, 0.0),
-        "Emergency_Braking": (15.0, 15.0, 0.0),
-        "Suicide_Run":       (15.0, 20.0, 0.0), # The 0.018 case
-        "Inside_Wall":       (0.0, 0.0, 0.0)    # Should be 100% crash
+        "Nominal_Cruising":  (40.0, 15.0, 0.0), 
+        "Warning_Threshold": (25.0, 15.0, 0.0), 
+        "Critical_Braking":  (15.0, 15.0, 0.0), 
+        "Imminent_Collision": (10.0, 20.0, 0.0), 
+        "Post_Collision":    (0.0, 0.0, 0.0)    
     }
 
     print("\n" + "="*60)

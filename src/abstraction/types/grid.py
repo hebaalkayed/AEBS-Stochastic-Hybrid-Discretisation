@@ -3,25 +3,39 @@ import numpy as np
 GRID_PRESETS = {
     'debug':  {'res': (5.0, 2.0, 1.0), 'desc': "Fast Debug"},
     'coarse': {'res': (2.0, 1.0, 0.5), 'desc': "Initial Checks"},
-    'medium': {'res': (1.0, 0.5, 0.25), 'desc': "Baseline"},
+    
+    # MODIFIED PRESET: Changed Accel Res from 0.25 to 0.5
+    # This keeps state count ~300k (Safe) instead of ~623k (Crash)
+    'medium': {'res': (1.0, 0.5, 0.5), 'desc': "Baseline (Memory Safe)"},
+    
     'fine':   {'res': (0.5, 0.1, 0.1), 'desc': "High Fidelity"},
     'optimized': {'res': (1.5, 0.75, 0.5), 'desc': "Memory Safe Medium"},
     'light':  {'res': (1.5, 1.0, 1.0), 'desc': "Memory Safe Verification"}
 }
 
 class Grid:
-    def __init__(self, preset='medium', x_bounds=(0, 100), v_bounds=(0, 30), a_bounds=(-10, 5)):
+    # Default bounds are already widened to (-15, 10) as you had them
+    def __init__(self, preset='medium', x_bounds=(0, 100), v_bounds=(0, 30), a_bounds=(-15, 10)):
         if preset not in GRID_PRESETS: 
             raise ValueError(f"Unknown preset {preset}")
         
-        self.resolution = GRID_PRESETS[preset]['res']
+        # 1. Load Resolution from Preset
+        res_tuple = GRID_PRESETS[preset]['res']
+        
+        # 2. Store Parameters
+        self.resolution = res_tuple
         self.bounds = [x_bounds, v_bounds, a_bounds]
         
-        # Center-offset bins so integer values land in the middle
-        self.bins = [
-            np.arange(b[0] - r/2, b[1] + r + r/2, r) 
-            for b, r in zip(self.bounds, self.resolution)
-        ]
+        # 3. Create Bins (Cell Edges)
+        # We offset by r/2 so that integer values (like 0.0, 1.0) land in the center of a cell
+        self.bins = []
+        for (low, high), r in zip(self.bounds, self.resolution):
+            # Arange from slightly below min to slightly above max
+            # This ensures we cover the full range with integer-centered cells
+            edges = np.arange(low - r/2, high + r + r/2, r)
+            self.bins.append(edges)
+
+        # 4. Calculate Shape
         self.shape = tuple(len(b) - 1 for b in self.bins)
         self.total_states = np.prod(self.shape)
 
