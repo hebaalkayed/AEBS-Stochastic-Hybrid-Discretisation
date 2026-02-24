@@ -12,6 +12,7 @@ class PlantWrapper(StochasticHybridSystem):
         
         # Combine Plant Noise (Engine) and Lead Noise (Driver)
         # This is strictly in ACCELERATION units (m/s^2)
+        # adding variances, then taking the square root to get back to standard deviation.
         self.accel_sigma = np.sqrt(self.plant.noise_std**2 + lead_noise_std**2)
 
     def get_action_space(self):
