@@ -6,8 +6,9 @@ GRID_PRESETS = {
     
     # MODIFIED PRESET: Changed Accel Res from 0.25 to 0.5
     # This keeps state count ~300k (Safe) instead of ~623k (Crash)
-    'medium': {'res': (1.0, 0.5, 0.5), 'desc': "Baseline (Memory Safe)"},
-    
+    # 'medium': {'res': (1.0, 0.5, 0.5), 'desc': "Baseline (Memory Safe)"},
+    'medium': {'res': (1.0, 0.5, 0.25), 'desc': "Baseline (epsilon < 1)"},
+
     'fine':   {'res': (0.5, 0.1, 0.1), 'desc': "High Fidelity"},
     'optimized': {'res': (1.5, 0.75, 0.5), 'desc': "Memory Safe Medium"},
     'light':  {'res': (1.5, 1.0, 1.0), 'desc': "Memory Safe Verification"}
