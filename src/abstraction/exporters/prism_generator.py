@@ -41,7 +41,7 @@ class PrismModelGenerator:
     # UPDATED HEADER WRITER
     def _write_header(self, f, globals_dict, constants):
         f.write("// --- MODULAR AEBS MODEL (Robust IMDP) ---\n")
-        f.write("mdp\n\n")
+        f.write("imdp\n\n")
         
         # Write Constants (New Feature)
         if constants:

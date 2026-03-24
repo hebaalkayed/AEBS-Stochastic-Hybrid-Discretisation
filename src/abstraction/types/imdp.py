@@ -40,13 +40,23 @@ class IMDP:
         # Self-Loop with certainty
         sink_str = f"[1.0, 1.0] : ({self.state_var}'={self.sink_state_id})"
         
-        # Assign to Action 0 (Coast)
-        self.transitions[self.sink_state_id][0] = sink_str
+        # BUG FIX: Assign self-loop to ALL actions, not just action 0.
+        # Collect every action id that appears anywhere in the model.
+        all_actions = set()
+        for src, actions in self.transitions.items():
+            all_actions.update(actions.keys())
+        # Fallback: if no transitions yet, at least cover action 0
+        if not all_actions:
+            all_actions = {0}
+        
+        for act_id in all_actions:
+            self.transitions[self.sink_state_id][act_id] = sink_str
         
         # Label it structurally
         self.add_label("safe_sink", self.sink_state_id)
         
-        print(f"[{self.name}] Finalized with Sink State at {self.state_var}={self.sink_state_id}")
+        print(f"[{self.name}] Finalized with Sink State at {self.state_var}={self.sink_state_id} "
+              f"(actions: {sorted(all_actions)})")
         return self.sink_state_id
 
     def write_prism_body(self, f, sync_label="time_step"):

@@ -2,63 +2,69 @@ from abc import ABC, abstractmethod
 import numpy as np
 from typing import Dict, Tuple
 
+
 class StochasticHybridSystem(ABC):
     """
-    Interface for any system (Plant, Controller, Robot) that 
-    needs to be discretized by the Generic Algorithm.
+    Interface for any system (Plant, Controller, Robot) that
+    needs to be discretised by the IMDP construction algorithm.
     """
-    
+
     @abstractmethod
     def get_action_space(self) -> Dict[int, float]:
         """
-        Returns map of {discrete_id: continuous_value}.
-        Example: {0: 0.0, 1: -4.0}
+        Returns a map of {discrete_action_id: continuous_action_value}.
+
+        Example: {0: 0.0, 1: -4.0, 2: -9.8}
         """
         pass
 
     @abstractmethod
-    def get_next_state_distribution(self, state: np.ndarray, action: float) -> Tuple[np.ndarray, np.ndarray, float, float]:
+    def get_next_state_distribution(
+        self,
+        state:  np.ndarray,
+        action: float
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Returns the parameters for the transition kernel:
+        Returns the parameters that characterise the one-step transition kernel.
 
-            1. deterministic_next_state (np.ndarray, shape (n,)):
-               Nominal next state from deterministic dynamics.
+        Return value: (deterministic_next_state, sigma_per_dim)
 
-            2. sigma_per_dim (np.ndarray, shape (n,)):
-               Per-dimension Gaussian noise standard deviation.
-               Set to 0.0 for deterministic dimensions (delta-function kernel).
-               This is physically correct — noise only enters the dimensions
-               where it physically occurs (e.g. v_lead in the AEBS plant).
+        ── deterministic_next_state  (np.ndarray, shape (n,)) ───────────────
+        Nominal next state from the deterministic plant dynamics f(state, action).
+        This is the mean of the stochastic kernel (the point around which the
+        Gaussian is centred in the stochastic dimensions).
 
-               CRITICAL: Applying a single global sigma to all dimensions
-               causes mass to leak into wrong cells in deterministic dimensions
-               AND inflates epsilon via dimensional mismatch (see below).
+        ── sigma_per_dim  (np.ndarray, shape (n,)) ──────────────────────────
+        Per-dimension Gaussian noise standard deviation.
+        Set to 0.0 for deterministic dimensions (delta / indicator kernel).
+        Set to sigma > 0 for stochastic dimensions (Gaussian CDF kernel).
 
-            3. L_t (float):
-               Lipschitz constant of deterministic dynamics.
-               Spectral norm of the Jacobian df/dx.
+        This is physically correct for the AEBS plant:
+            sigma_per_dim = [0.0, 0.0, sigma_v_lead]
+        because noise only enters through the lead vehicle's uncertain acceleration,
+        which propagates to v_lead (dimension 2) over one timestep. Gap (dim 0)
+        and v_ego (dim 1) are deterministic given the state and action.
 
-            4. L_q (float):
-               Lipschitz constant of the stochastic kernel.
-               For a Gaussian with std sigma_noise:
-                   L_q = 2 / (sigma_noise * sqrt(2*pi))
-               Bounds how much transition probabilities change per unit
-               shift in the kernel centre (mean).
+        CRITICAL: Using a single global sigma for all dimensions causes probability
+        mass to leak into physically unreachable cells in the deterministic dimensions
+        AND prevents the range-based epsilon from being tight (see below).
 
-        EPSILON BOUND (Abate et al. Theorem 1):
-            epsilon = (L_t + L_q) * delta_stochastic
-        where delta_stochastic = resolution[stochastic_dim] / 2.0
-        (half cell width IN THE STOCHASTIC DIMENSION ONLY).
+        ── Epsilon computation (soudjani2013-abstraction branch) ─────────────
+        The discretiser no longer needs L_t or L_q. Instead, the per-transition
+        error bound epsilon_ij is computed directly from sigma_per_dim and the
+        source/target cell boundaries using the range-based formula of
+        Soudjani & Abate (2013), Equation 3.11:
 
-        This is the correct dimensional form for systems where noise enters
-        only one dimension. Using a global Euclidean cell_diameter that mixes
-        physical units (e.g. metres and m/s) inflates epsilon >> 1, collapsing
-        all IMDP intervals to [1e-6, 1.0] — formally sound but void.
+            epsilon_ij = max_{s in Ai} p(Xj|s) - min_{s in Ai} p(Xj|s)
 
-        With correct per-dimension sigma and epsilon:
-            L_q  = 2 / (0.2 * sqrt(2pi)) ≈ 4.0
-            L_t  ≈ 1.0
-            delta_vlead = 0.125 m/s  (for 121-cell grid over 30 m/s)
-            epsilon = (1.0 + 4.0) * 0.125 = 0.625  → meaningful intervals ✓
+        where p(Xj|s) = Phi((hi_j - mu(s))/sigma) - Phi((lo_j - mu(s))/sigma)
+        is the Gaussian CDF integral over target cell j given source point s.
+
+        For the AEBS plant with sigma = 0.2 m/s and cell width 0.25 m/s:
+            epsilon_ij (central cell) ~ 0.08   [vs 0.63 with Lipschitz bound]
+            p_min (central cell)      ~ 0.39   [vs 0.0 with Lipschitz bound]
+            p_max (central cell)      ~ 0.55   [tighter than before]
+
+        Both Pmax and Pmin PRISM queries are now informative.
         """
         pass

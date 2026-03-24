@@ -13,18 +13,65 @@ SQRT2PI = 2.5066282746310002  # sqrt(2 * pi)
 def fast_norm_cdf(x, mean, std):
     return 0.5 * (1 + math.erf((x - mean) / (std * SQRT2)))
 
-def compute_lq(sigma: float) -> float:
-    """
-    Lipschitz constant of the Gaussian kernel interval probability
-    w.r.t. a shift in the kernel centre (mean).
 
-    For P = Phi((high-mu)/sigma) - Phi((low-mu)/sigma),
-    the maximum |dP/dmu| equals the PDF peak = 1/(sigma*sqrt(2pi)).
-    Both cell boundaries contribute, giving 2/(sigma*sqrt(2pi)).
+# --- BRANCH: soudjani2013-abstraction ---
+#
+# BUG FIX v2 (mu range): compute epsilon in next-state space.
+# BUG FIX v3 (crash wall): use CRASH_WALL = 0.0 instead of bins[0][0].
+#
+# BUG FIX v4 (crash early return):
+#   Previously, crash routing was applied ADDITIVELY at the end of
+#   _compute_kernel_accurate. For any state where next_center[0] <= 0,
+#   the Gaussian search over v_lead ran first and populated the transitions
+#   dict with valid intervals. Then p_crash = 1.0 was added on top, giving:
+#
+#       {1: (0.49, 1.0), 2: (0.49, 1.0), ..., 0: (1.0, 1.0)}
+#
+#   where p_min sums >> 1.0 — invalid for PRISM, which requires the
+#   lower bounds to admit at least one consistent probability distribution.
+#
+#   Root cause: gap is purely deterministic (sigma_gap = 0). When centroid
+#   dynamics predict next_gap <= 0, the crash probability is exactly 1 with
+#   no uncertainty. Gaussian noise in v_lead is irrelevant — the vehicle has
+#   already crashed regardless of where v_lead lands.
+#
+#   Fix: return {0: (1.0, 1.0)} immediately. The Gaussian search is skipped
+#   entirely, so there is nothing to add crash to later.
+
+
+# Physical gap at or below which the ego vehicle has crashed.
+CRASH_WALL = 0.0
+
+
+def compute_range_epsilon_ij(mu_lo: float, mu_hi: float,
+                              tgt_lo: float, tgt_hi: float,
+                              sigma: float) -> float:
+    """
+    Per-transition range-based error bound (Soudjani & Abate 2013, Eq. 3.11).
+
+    Computes the range of g(mu) = Phi((tgt_hi-mu)/sigma) - Phi((tgt_lo-mu)/sigma)
+    as mu varies over [mu_lo, mu_hi]:
+
+        epsilon_ij = max g(mu) - min g(mu)
+
+    Pass mu_lo = next_center[d] - half_cell[d],
+         mu_hi = next_center[d] + half_cell[d]   (NEXT-STATE space)
+
+    g peaks at mu* = (tgt_lo + tgt_hi) / 2 and is monotone on either side.
     """
     if sigma <= 0:
         return 0.0
-    return 2.0 / (sigma * SQRT2PI)
+
+    def g(mu):
+        return fast_norm_cdf(tgt_hi, mu, sigma) - fast_norm_cdf(tgt_lo, mu, sigma)
+
+    mu_peak = (tgt_lo + tgt_hi) / 2.0
+
+    g_max = g(mu_peak) if mu_lo <= mu_peak <= mu_hi else max(g(mu_lo), g(mu_hi))
+    g_min = min(g(mu_lo), g(mu_hi))
+
+    return max(0.0, g_max - g_min)
+
 
 # --- WORKER FUNCTION ---
 def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
@@ -40,7 +87,10 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
         return flat
 
     def index_to_cell_center(idx_tuple):
-        return np.array([(grid_bins[i][idx_tuple[i]] + grid_bins[i][idx_tuple[i]+1])/2.0 for i in range(3)])
+        return np.array([
+            (grid_bins[i][idx_tuple[i]] + grid_bins[i][idx_tuple[i] + 1]) / 2.0
+            for i in range(3)
+        ])
 
     for idx in chunk_indices:
         src_id = get_flat_index(idx)
@@ -53,163 +103,146 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
 
         center = index_to_cell_center(idx)
 
+        half_cell = [
+            (grid_bins[d][idx[d] + 1] - grid_bins[d][idx[d]]) / 2.0
+            for d in range(3)
+        ]
+
         for act_id, act_val in system_action_space.items():
-            # A. Query Physics
-            # sigma_per_dim: per-dimension noise std (0.0 = deterministic indicator kernel)
-            next_c, sigma_per_dim, L_t, L_q = system_wrapper.get_next_state_distribution(center, act_val)
+            next_c, sigma_per_dim = system_wrapper.get_next_state_distribution(
+                center, act_val
+            )
 
-            # B. Calculate Formal Error Bound (Abate et al. Theorem 1)
-            #
-            # CORRECT FORMULA:  epsilon = (L_t + L_q) * delta_stochastic
-            # where delta_stochastic = resolution[stochastic_dim] / 2.0
-            #
-            # This is the per-dimension form of the Abate bound, valid for
-            # separable kernels where noise enters only one dimension.
-            #
-            # WHY NOT global cell_diameter:
-            #   The naive global form epsilon = (L_t + L_q) * cell_diameter
-            #   uses cell_diameter = 2 * ||resolution/2|| which mixes physical
-            #   units (metres for gap, m/s for velocities) in a Euclidean norm.
-            #   For AEBS with resolution ≈ [3m, 0.6m/s, 0.25m/s]:
-            #       cell_diameter = 2 * ||[1.5, 0.3, 0.125]|| ≈ 3.08  (incoherent units)
-            #       L_q           = 2 / (0.2 * sqrt(2pi))     ≈ 4.0   (1/m/s units)
-            #       epsilon       = (1 + 4) * 3.08             ≈ 18.5  >> 1
-            #   → every interval collapses to [1e-6, 1.0] — formally sound, informationally void.
-            #
-            # OLD (INCORRECT) FORMULA — kept for reference:
-            #   cell_volume = np.prod(grid_resolution)
-            #   cell_radius = np.linalg.norm(grid_resolution / 2.0)
-            #   epsilon = cell_volume * (L_t + L_q) * cell_radius
-            # This had no basis in Abate et al. but accidentally suppressed blowup
-            # because cell_volume << 1 partially compensated for the error.
-            #
-            # WITH THIS FIX:
-            #   stochastic_dim    = 2  (v_lead — only noisy dimension)
-            #   delta_stochastic  = resolution[2] / 2.0 = 0.125 m/s
-            #   epsilon           = (1.0 + 4.0) * 0.125 = 0.625   ← meaningful ✓
-            #   Central cell prob ≈ 0.68  →  interval [0.055, 1.0] ✓
-            #   Neighbour cell prob ≈ 0.16 → interval [0.0, 0.785] ✓
-            #
-            stochastic_dims = np.where(sigma_per_dim > 0)[0]
-            if len(stochastic_dims) > 0:
-                # Use the stochastic dimension with the largest cell half-width
-                # (conservative choice when multiple stochastic dims exist)
-                stochastic_dim = stochastic_dims[np.argmax(grid_resolution[stochastic_dims])]
-                delta_stochastic = grid_resolution[stochastic_dim] / 2.0
-            else:
-                # Fully deterministic system: use minimum cell half-width
-                delta_stochastic = np.min(grid_resolution) / 2.0
-
-            epsilon = (L_t + L_q) * delta_stochastic
-            # DEBUG — remove after confirming
-            if src_id == 1:
-                print(f"\n[DEBUG] sigma_per_dim={sigma_per_dim}, delta_stochastic={delta_stochastic:.4f}, L_t={L_t:.3f}, L_q={L_q:.3f}, epsilon={epsilon:.4f}")
-    
-            # C. Compute Transition Kernel (per-dimension sigma, strict crash priority)
             transitions = _compute_kernel_accurate(
-                next_c, sigma_per_dim, epsilon,
+                next_c, sigma_per_dim, half_cell,
                 grid_bins, grid_shape, grid_total_states
             )
+
+            if src_id == 1 and act_id == 0:
+                epsilons = [hi - lo for (lo, hi) in transitions.values()]
+                if epsilons:
+                    nonzero = sum(1 for e in epsilons if e > 1e-8)
+                    print(f"\n[DEBUG soudjani2013 v4] src=1, act=0 | "
+                          f"sigma={sigma_per_dim[2]:.4f} | "
+                          f"next_c[2]={next_c[2]:.4f} | "
+                          f"n_transitions={len(transitions)} | "
+                          f"non-trivial intervals: {nonzero}/{len(transitions)} | "
+                          f"epsilon range=[{min(epsilons):.5f}, {max(epsilons):.5f}]")
+                    sample_tgt, (lo, hi) = next(iter(transitions.items()))
+                    status = 'NON-ZERO' if lo > 1e-5 else 'floor (1e-6)'
+                    print(f"  sample -> s={sample_tgt}: [{lo:.6f}, {hi:.6f}]  "
+                          f"lower bound {status}")
 
             results.append((src_id, act_id, transitions))
     return results
 
 
-def _compute_kernel_accurate(next_center, sigma_per_dim, epsilon, bins, grid_shape, total_states):
+def _compute_kernel_accurate(next_center, sigma_per_dim, half_cell,
+                              bins, grid_shape, total_states):
     """
-    Computes transitions using per-dimension Gaussian kernels.
+    Computes IMDP transitions with SA13 Eq. 3.11 range-based epsilon bounds.
 
-    For each dimension:
-        sigma > 0: integrate Gaussian CDF over target cell bounds (stochastic)
-        sigma = 0: indicator function — 1.0 if next_center falls in cell, else 0.0
+    BUG FIX v4 — Crash early return:
+        Gap is deterministic. When next_center[0] <= CRASH_WALL the transition
+        to s=0 is certain. We return immediately so the Gaussian search over
+        v_lead never runs, preventing the invalid additive combination:
 
-    This correctly models the AEBS plant where only v_lead (dim 2) is stochastic.
-    Deterministic dimensions (gap, v_ego) use indicator kernels to avoid leaking
-    mass into physically unreachable cells.
+            Gaussian intervals  +  p_crash=1.0  =>  p_min sum >> 1.0
+
+        After this guard, crash can never occur inside the loop below, so the
+        additive crash block at the end of the old code is removed entirely.
+
+    Args:
+        next_center   : deterministic next state (centroid dynamics)
+        sigma_per_dim : [0, 0, sigma_v_lead] for AEBS
+        half_cell     : per-dim half-widths of source cell
+        bins          : grid bin edges per dimension
+        grid_shape    : number of cells per dimension
+        total_states  : safe_sink id = total_states
+
+    Returns:
+        dict { target_state_id: (p_min, p_max) }
     """
-    # Search radius: use max stochastic sigma, or small fallback for deterministic dims
-    max_sigma = np.max(sigma_per_dim)
-    noise_radius = 4 * max_sigma if max_sigma > 0 else 0.0
+    # --- BUG FIX v4: crash early return ---
+    # Gap is deterministic (sigma[0] = 0). If centroid dynamics predict
+    # next_gap <= 0, the crash is certain — skip the Gaussian search entirely.
+    if next_center[0] <= CRASH_WALL:
+        return {0: (1.0, 1.0)}
+
+    # --- Grid search (only reached when next_gap > 0) ---
+    stochastic_dims = [d for d in range(3) if sigma_per_dim[d] > 0]
+    max_sigma = max(sigma_per_dim) if stochastic_dims else 0.0
+    noise_radius = 4.0 * max_sigma
 
     ranges = []
     for i in range(3):
         if sigma_per_dim[i] > 0:
-            # Stochastic dim: search within 4-sigma radius
             s = np.digitize(next_center[i] - noise_radius, bins[i]) - 1
             e = np.digitize(next_center[i] + noise_radius, bins[i]) - 1
         else:
-            # Deterministic dim: only the cell containing next_center
             s = np.digitize(next_center[i], bins[i]) - 1
             e = s
         ranges.append(range(max(0, s), min(grid_shape[i] - 1, e) + 1))
 
     transitions = {}
     total_inside_mass = 0.0
-    candidates = []
 
-    for idx in itertools.product(*ranges):
+    for tgt_idx in itertools.product(*ranges):
+
         prob = 1.0
-
         for d in range(3):
-            low  = bins[d][idx[d]]
-            high = bins[d][idx[d] + 1]
+            lo   = bins[d][tgt_idx[d]]
+            hi   = bins[d][tgt_idx[d] + 1]
             mean = next_center[d]
-
             if sigma_per_dim[d] > 0:
-                # Gaussian CDF integration for stochastic dimension
-                p_high = fast_norm_cdf(high, mean, sigma_per_dim[d])
-                p_low  = fast_norm_cdf(low,  mean, sigma_per_dim[d])
-                prob  *= (p_high - p_low)
+                prob *= fast_norm_cdf(hi, mean, sigma_per_dim[d]) \
+                      - fast_norm_cdf(lo, mean, sigma_per_dim[d])
             else:
-                # Indicator function for deterministic dimension
-                prob  *= (1.0 if low <= mean < high else 0.0)
+                prob *= 1.0 if lo <= mean < hi else 0.0
 
-        p_min = max(0.0, prob - epsilon)
-        p_max = min(1.0, prob + epsilon)
+        if prob <= 0.0:
+            continue
 
-        if p_max > 0:
-            flat = 0
-            mult = 1
-            for i in reversed(range(3)):
-                flat += idx[i] * mult
-                mult *= grid_shape[i]
+        epsilon_ij = 0.0
+        for d in stochastic_dims:
+            mu_lo    = next_center[d] - half_cell[d]
+            mu_hi    = next_center[d] + half_cell[d]
+            tgt_lo_d = bins[d][tgt_idx[d]]
+            tgt_hi_d = bins[d][tgt_idx[d] + 1]
+            epsilon_ij += compute_range_epsilon_ij(
+                mu_lo, mu_hi, tgt_lo_d, tgt_hi_d, sigma_per_dim[d]
+            )
 
-            candidates.append({'id': flat, 'min': p_min, 'max': p_max, 'prob': prob})
+        p_min = max(0.0, prob - epsilon_ij)
+        p_max = min(1.0, prob + epsilon_ij)
 
-    # NO PRUNING — retain all candidates within the search radius.
-    # Abate et al. require full kernel integration with no mass discarded.
-    for c in candidates:
-        safe_min = max(c['min'], 1e-6)  # PRISM requires strictly positive lower bounds
-        transitions[c['id']] = (safe_min, c['max'])
-        total_inside_mass += c['prob']
+        flat = 0
+        mult = 1
+        for i in reversed(range(3)):
+            flat += tgt_idx[i] * mult
+            mult *= grid_shape[i]
 
-    # STRICT PRIORITY LOGIC — crash and safe sink
-    wall_loc = bins[0][0]
+        transitions[flat] = (max(1e-6, p_min), p_max)
+        total_inside_mass += prob
 
-    if sigma_per_dim[0] > 0:
-        p_crash = fast_norm_cdf(wall_loc, next_center[0], sigma_per_dim[0])
-    else:
-        p_crash = 1.0 if next_center[0] < wall_loc else 0.0
-
-    p_safe_sink = max(0.0, 1.0 - total_inside_mass - p_crash)
-
-    # A. Crash State (s=0)
-    if p_crash > 1e-6:
-        c_min = max(1e-6, p_crash - epsilon)
-        c_max = min(1.0,  p_crash + epsilon)
-        if 0 in transitions:
-            curr_min, curr_max = transitions[0]
-            transitions[0] = (min(1.0, curr_min + c_min), min(1.0, curr_max + c_max))
-        else:
-            transitions[0] = (c_min, c_max)
-
-    # B. Safe Sink (s=total_states)
+    # --- Safe sink: residual Gaussian tail outside grid ---
+    # next_gap > 0 so p_crash = 0; all residual goes to safe_sink.
+    p_safe_sink = max(0.0, 1.0 - total_inside_mass)
     if p_safe_sink > 1e-6:
-        s_min = max(1e-6, p_safe_sink - epsilon)
-        s_max = min(1.0,  p_safe_sink + epsilon)
+        epsilon_sink = 0.0
+        for d in stochastic_dims:
+            mu_lo     = next_center[d] - half_cell[d]
+            mu_hi     = next_center[d] + half_cell[d]
+            grid_lo_d = bins[d][0]
+            grid_hi_d = bins[d][-1]
+            epsilon_sink += compute_range_epsilon_ij(
+                mu_lo, mu_hi, grid_lo_d, grid_hi_d, sigma_per_dim[d]
+            )
+        s_min = max(1e-6, p_safe_sink - epsilon_sink)
+        s_max = min(1.0,  p_safe_sink + epsilon_sink)
         if total_states in transitions:
-            curr_min, curr_max = transitions[total_states]
-            transitions[total_states] = (min(1.0, curr_min + s_min), min(1.0, curr_max + s_max))
+            lo, hi = transitions[total_states]
+            transitions[total_states] = (min(1.0, lo + s_min), min(1.0, hi + s_max))
         else:
             transitions[total_states] = (s_min, s_max)
 
@@ -230,10 +263,13 @@ class DiscretizationAlgorithm:
         all_indices = list(itertools.product(*[range(d) for d in self.grid.shape]))
         num_cores = max(1, cpu_count() - 1)
         fixed_chunk_size = 1000
-        chunks = [all_indices[i:i + fixed_chunk_size] for i in range(0, len(all_indices), fixed_chunk_size)]
+        chunks = [all_indices[i:i + fixed_chunk_size]
+                  for i in range(0, len(all_indices), fixed_chunk_size)]
         total_chunks = len(chunks)
 
-        print(f"[Discretizer] Using {num_cores} cores. Mode: Per-dim sigma kernel, stochastic-dim epsilon.")
+        print(f"[Discretizer] Using {num_cores} cores. "
+              f"Mode: Range-based epsilon (Soudjani & Abate 2013, Eq. 3.11) — "
+              f"mu range in next-state space (v4).")
 
         with Pool(processes=num_cores) as pool:
             func = partial(process_chunk,
@@ -249,7 +285,8 @@ class DiscretizationAlgorithm:
                 counter += 1
                 if counter % 10 == 0 or counter == total_chunks:
                     percent = (counter / total_chunks) * 100
-                    print(f"[Discretizer] Progress: {percent:.1f}% ({counter}/{total_chunks})", end='\r')
+                    print(f"[Discretizer] Progress: {percent:.1f}% "
+                          f"({counter}/{total_chunks})", end='\r')
 
                 for (src_id, act_id, transitions) in batch_results:
                     if not transitions:
