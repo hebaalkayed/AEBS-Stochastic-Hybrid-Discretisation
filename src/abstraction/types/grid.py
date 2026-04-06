@@ -14,7 +14,7 @@ GRID_PRESETS = {
     'light':  {'res': (1.5, 1.0, 1.0), 'desc': "Memory Safe Verification"},
     'toy':    {'res': (10.0, 10.0, 2.0), 'desc': "Toy POC (16 states, hand-traceable)"},
     'toy_v2': {'res': (5.0, 5.0, 2.0), 'desc': "Toy POC v2 (56 states, actions distinguishable)"},
-    'micro_60': {'res': (2.0, 1.0, 0.5), 'desc': "60-state Micro-World"}
+    'micro':  {'res': (2.0, 2.0, 1.0), 'desc': "Micro-world POC (72 states, full fidelity)"}
 }
 
 class Grid:

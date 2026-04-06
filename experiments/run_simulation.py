@@ -87,6 +87,7 @@ def run_simulation_loop():
             is_seen, obs_gap, obs_v_rel = perception.read_sensors(ground_truth)
             
             # 3. CONTROLLER UPDATE
+            # remove unused variable
             acc_cmd, action_name = controller.get_action(is_seen, obs_gap, obs_v_rel)
             
             # 4. PLANT UPDATE

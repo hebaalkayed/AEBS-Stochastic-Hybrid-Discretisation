@@ -102,7 +102,9 @@ class AEBSController:
         for idx_tuple in itertools.product(*ranges):
             flat_id = grid.get_flat_index(idx_tuple)
             center = grid.index_to_cell_center(idx_tuple)
-            gap, v_rel, _ = center 
+            # BUG FIX: center = (gap, v_ego, v_lead). Closing speed is v_ego - v_lead.
+            gap, v_ego, v_lead = center
+            v_rel = v_ego - v_lead
             
             action_name = self.get_action_name_for_state(gap, v_rel, 0, plant_coords=plant_coords)
             
