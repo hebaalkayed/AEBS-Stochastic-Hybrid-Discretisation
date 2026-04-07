@@ -14,17 +14,20 @@ class LabelingGrammar:
 
     def get_labels(self, state):
         """
-        Returns list of labels satisfied by state (Gap, V, A).
+        Returns list of labels satisfied by state (Gap, V_ego, V_lead).
         Implements Dual-Trigger Logic (Distance OR TTC).
         """
-        gap, v_rel = state[0], state[1]
+        # BUG FIX: Use closing speed v_rel = v_ego - v_lead, NOT raw v_ego.
+        gap, v_ego, v_lead = state[0], state[1], state[2]
+        v_rel = v_ego - v_lead
+        
         props = set()
         
         if gap <= 0:
             return [Labels.CRASH]
         props.add(Labels.SAFE)
         
-        # Calculate TTC (avoid divide by zero)
+        # Calculate TTC using closing speed (avoid divide by zero)
         ttc = gap / v_rel if v_rel > 0.1 else 999.0
         
         # Check Safety Rules

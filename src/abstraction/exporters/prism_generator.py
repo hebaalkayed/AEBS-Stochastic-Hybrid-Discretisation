@@ -55,11 +55,14 @@ class PrismModelGenerator:
         f.write("\n")
 
     def _write_turn_module(self, f):
+        # FIX: Reordered so controller acts BEFORE the first physics step.
+        # Old order: time_step → perceive → control (cold start: u=0 applied before controller sees state)
+        # New order: perceive → control → time_step (controller reads state and sets u first)
         f.write("module Turn\n")
         f.write("    t : [1..3] init 1;\n") 
-        f.write("    [time_step] (t=1) -> (t'=2);\n")
-        f.write("    [perceive]  (t=2) -> (t'=3);\n")
-        f.write("    [control]   (t=3) -> (t'=1);\n")
+        f.write("    [perceive]  (t=1) -> (t'=2);\n")
+        f.write("    [control]   (t=2) -> (t'=3);\n")
+        f.write("    [time_step] (t=3) -> (t'=1);\n")
         f.write("endmodule\n\n")
 
     def _write_module(self, f, module):
