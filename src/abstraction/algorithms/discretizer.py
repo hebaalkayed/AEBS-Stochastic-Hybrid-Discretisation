@@ -248,6 +248,67 @@ def _compute_kernel_accurate(next_center, sigma_per_dim, half_cell,
 
     return transitions
 
+def compute_global_error_bound(imdp: IMDP, N_horizon: int) -> dict:
+    """
+    Computes the global abstraction error bound E from SA13 Eq. 3.13,
+    using range-based epsilon values (Corollary 3.8 / Eq. 3.11).
+
+    For each source state i and action a, the per-row epsilon sum is:
+        K(i, a) = sum_j  epsilon_ij
+    where epsilon_ij = (p_max_ij - p_min_ij) / 2
+    recovered from the stored IMDP interval strings.
+
+    The global error bound is:
+        E = N * max_{i, a} K(i, a)
+
+    This bounds:
+        | p_s0(A) - p_p0(Ap) | <= E
+    for every initial state, where p_s0(A) is the true continuous-system
+    invariance probability and p_p0(Ap) is the PRISM-computed value.
+
+    Args:
+        imdp:      The IMDP object after discretisation and sink finalisation.
+        N_horizon: Verification time horizon (number of steps, e.g. 100).
+
+    Returns:
+        dict with keys:
+            'E':           global error bound
+            'max_K':       max per-row epsilon sum (= E / N)
+            'worst_state': source state id achieving the maximum
+            'worst_action': action id achieving the maximum
+    """
+    max_K = 0.0
+    worst_state = None
+    worst_action = None
+
+    for src, actions in imdp.transitions.items():
+        for act, dist_str in actions.items():
+            K = 0.0
+            # Parse transition string: "[p_min, p_max] : (s'=j) + ..."
+            parts = dist_str.split(' + ')
+            for part in parts:
+                try:
+                    bracket = part.strip().split(']')[0].lstrip('[')
+                    p_min_str, p_max_str = bracket.split(',')
+                    p_min = float(p_min_str.strip())
+                    p_max = float(p_max_str.strip())
+                    epsilon_ij = (p_max - p_min) / 2.0
+                    K += epsilon_ij
+                except (ValueError, IndexError):
+                    continue  # skip malformed entries
+
+            if K > max_K:
+                max_K = K
+                worst_state = src
+                worst_action = act
+
+    E = N_horizon * max_K
+    return {
+        'E': E,
+        'max_K': max_K,
+        'worst_state': worst_state,
+        'worst_action': worst_action,
+    }
 
 # --- MAIN CLASS ---
 class DiscretizationAlgorithm:

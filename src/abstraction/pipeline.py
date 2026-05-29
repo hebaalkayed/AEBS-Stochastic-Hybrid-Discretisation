@@ -1,5 +1,6 @@
 import os
 import itertools
+
 from src.abstraction.types.grid import Grid
 from src.abstraction.algorithms.discretizer import DiscretizationAlgorithm
 from src.abstraction.modules.wrappers import PlantWrapper
@@ -7,6 +8,7 @@ from src.abstraction.semantics.labeling import LabelingGrammar
 from src.abstraction.types.abstracted_controller import ControllerModel
 from src.abstraction.types.perception_model import PerceptionModel
 from src.abstraction.exporters.prism_generator import PrismModelGenerator
+from src.abstraction.algorithms.discretizer import compute_global_error_bound
 
 def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perception_noise=False,
                             grid_bounds=None, output_path=None, lead_noise_std=2.0):
@@ -36,11 +38,19 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     
     # --- MODULE 1: PLANT ---
     print("[Pipeline] Module 1/3: Vehicle Plant")
+
     plant_imdp = algo.run(
         PlantWrapper(plant, controller, lead_noise_std=lead_noise_std),
         name="Plant"
     )
     sink_id = plant_imdp.finalize_sink_state()
+    
+    N_HORIZON = 10  # set this to match your Storm/PRISM query horizon
+    report = compute_global_error_bound(plant_imdp, N_HORIZON)
+    print(f"[Pipeline] Global error bound E = {report['E']:.6f}  (N={N_HORIZON})")
+    print(f"[Pipeline] Worst row K = {report['max_K']:.6f}")
+    print(f"[Pipeline] Worst (state, action) = ({report['worst_state']}, {report['worst_action']})")
+    print(f"[Pipeline] {'CERTIFIED (E<1)' if report['E'] < 1.0 else 'UNCERTIFIED -- refine grid or shorten horizon'}")
     
     # Labeling (Phase 1: crash state s=0 is always crash)
     plant_imdp.add_label("crash", 0)
@@ -85,64 +95,35 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
 
     # Controller Robustness (Sink)
     ctrl_model.add_rule(sink_id, 0)
-
-    # --- DYNAMIC SCENARIO TABLE ---
-    # Build scenarios from the actual grid — works for both production and POC
-    scenarios = {}
     
-    # Gather controller decisions and labels per state
-    state_info = {}
-    for idx in itertools.product(*[range(d) for d in grid.shape]):
-        flat_id = grid.get_flat_index(idx)
-        center = grid.index_to_cell_center(idx)
-        gap, v_ego, v_lead = center[0], center[1], center[2]
-        v_rel = v_ego - v_lead
-        act_name = controller.get_action_name_for_state(gap, v_rel, 0, plant_coords='relative_frame')
-        act_id = action_map.get(act_name, 0)
-        labels = grammar.get_labels(center)
-        state_info[flat_id] = {
-            'center': center, 'action': act_name, 'act_id': act_id,
-            'labels': labels, 'gap': gap, 'v_ego': v_ego, 'v_lead': v_lead
-        }
-    
-    # Pick representative states for each controller decision zone
-    # Prefer v_lead=0 (static obstacle) for clarity, highest v_ego for drama
-    for zone_name, target_act, sort_key in [
-        ("Safe_Cruising",      'coast',      lambda s: (s['gap'], s['v_ego'])),   # far + fast
-        ("Warning_Brake",      'brake_warn', lambda s: (s['gap'], s['v_ego'])),   # far + fast braking
-        ("Emergency_Brake",    'brake_full', lambda s: (s['gap'], s['v_ego'])),   # far + fast emergency
-        ("Imminent_Collision", 'brake_full', lambda s: (-s['gap'], s['v_ego'])),  # close + fast
-        ("Post_Collision",     None,         lambda s: (s['gap'],)),              # crash state
-    ]:
-        if target_act is None:
-            # Find a crash state
-            candidates = [sid for sid, info in state_info.items() 
-                          if info['gap'] <= 0 and info['v_ego'] == 0]
-            if candidates:
-                scenarios[zone_name] = candidates[0]
-        else:
-            candidates = [(sid, info) for sid, info in state_info.items()
-                          if info['action'] == target_act and info['v_lead'] == 0
-                          and info['v_ego'] > 0 and info['gap'] > 0]
-            if not candidates:
-                # Fallback: allow any v_lead
-                candidates = [(sid, info) for sid, info in state_info.items()
-                              if info['action'] == target_act and info['v_ego'] > 0]
-            if candidates:
-                candidates.sort(key=lambda x: sort_key(x[1]), reverse=True)
-                scenarios[zone_name] = candidates[0][0]
+    PHYSICAL_SCENARIOS = [
+    ("Safe_Cruising",      (100.0, 15.0, 0.0)),  # TTC=6.67 > 5.0 → coast
+    ("Warning_Brake",      ( 30.0,  7.0, 0.0)),  # TTC=4.29 in [4,5) → brake_warn
+    ("Emergency_Brake",    ( 10.0, 10.0, 0.0)),  # TTC=1.0  < 4.0  → brake_full
+    ("Imminent_Collision", (  5.0, 30.0, 0.0)),  # TTC=0.17        → brake_full
+    ("Post_Collision",     (  0.0,  0.0, 0.0)),  # crash state
+]
 
-    print("\n" + "="*60)
+    print("\n" + "="*66)
     print("   SCENARIO ID CHEAT SHEET (Use these in PRISM -const)")
-    print("="*60)
-    print(f" {'SCENARIO':<22} | {'STATE (Gap, V, Vl)':<22} | {'Action':<12} | {'ID':>3}")
+    print("="*66)
+    print(f" {'SCENARIO':<22} | {'STATE (Gap, V, Vl)':<20} | {'Action':<12} | {'ID':>7}")
     print("-" * 66)
-    
-    for name, flat_id in scenarios.items():
-        info = state_info.get(flat_id, {})
-        c = info.get('center', (0,0,0))
-        act = info.get('action', '?')
-        print(f" {name:<22} | ({c[0]:>4.0f}, {c[1]:>3.0f}, {c[2]:>3.0f}){'':<9} | {act:<12} | {flat_id:>3}")
+
+    scenarios = {}
+    for name, physical_state in PHYSICAL_SCENARIOS:
+        idx = grid.state_to_index(physical_state)
+        if idx is None:
+            print(f" {name:<22} | {str(physical_state):<20} | {'OUT OF BOUNDS':<12} | {'N/A':>7}")
+            continue
+        flat_id  = grid.get_flat_index(idx)
+        center   = grid.index_to_cell_center(idx)
+        gap, v_ego, v_lead = center
+        v_rel    = v_ego - v_lead
+        act_name = controller.get_action_name_for_state(gap, v_rel, 0, plant_coords='relative_frame')
+        scenarios[name] = flat_id
+        print(f" {name:<22} | ({center[0]:>4.0f},{center[1]:>4.0f},{center[2]:>4.0f}){'':<8} | {act_name:<12} | {flat_id:>7}")
+
     print("="*66 + "\n")
 
     plant_imdp.initial_state = "start_s"

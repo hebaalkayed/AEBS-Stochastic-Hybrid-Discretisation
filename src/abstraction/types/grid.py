@@ -8,13 +8,17 @@ GRID_PRESETS = {
 
     'medium': {'res': (1.0, 0.5, 0.25), 'desc': "Baseline (epsilon < 1)"},
     'fast_medium': {'res': (1.0, 0.2, 0.25), 'desc': "Fast Medium"},
+    'medium_tight': {'res': (1.0, 0.5, 0.1), 'desc': "Tight Pmin (sigma/cell=2.0)"},
+    
     
     'fine':   {'res': (0.5, 0.1, 0.1), 'desc': "High Fidelity"},
     'optimized': {'res': (1.5, 0.75, 0.5), 'desc': "Memory Safe Medium"},
     'light':  {'res': (1.5, 1.0, 1.0), 'desc': "Memory Safe Verification"},
     'toy':    {'res': (10.0, 10.0, 2.0), 'desc': "Toy POC (16 states, hand-traceable)"},
     'toy_v2': {'res': (5.0, 5.0, 2.0), 'desc': "Toy POC v2 (56 states, actions distinguishable)"},
-    'micro':  {'res': (2.0, 2.0, 1.0), 'desc': "Micro-world POC (72 states, full fidelity)"}
+    'micro':  {'res': (2.0, 2.0, 1.0), 'desc': "Micro-world POC (72 states, full fidelity)"},
+    # 'micro_fine': {'res': (1.0, 2.0, 1.0), 'desc': "Micro-world fine gap (408 states, shows interval divergence)"}
+    'micro_fine': {'res': (1.0, 1.0, 1.0), 'desc': "Micro-world fine (714 states, boundary resolution)"}
 }
 
 class Grid:
