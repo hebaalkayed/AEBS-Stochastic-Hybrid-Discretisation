@@ -18,7 +18,7 @@ class POCController:
     """
 
     def __init__(self):
-        self.dt = 1.0
+        self.dt = 0.1
 
         # Scaled accelerations (production: 0, -4, -9.8)
         self.acc_coast = 0.0

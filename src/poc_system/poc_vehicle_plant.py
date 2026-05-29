@@ -21,8 +21,8 @@ class POCVehiclePlant:
     """
 
     def __init__(self, dt=1.0, alpha=1.0):
-        self.dt = dt
-        self.alpha = alpha
+        self.dt = 0.1      # was 1.0 — 10x more steps to stop
+        self.alpha = 0.5    # was 1.0 — braking force halved
 
         # High relative noise (0.8 m/s² vs production's 0.05 m/s²).
         # Combined with lead_noise_std=0.5 in the wrapper, this gives
