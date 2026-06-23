@@ -9,19 +9,52 @@ class PlantWrapper(StochasticHybridSystem):
     State space: (gap_distance [m], v_ego [m/s], v_lead [m/s])
     Dimensions:  0 = gap    (deterministic)
                  1 = v_ego  (deterministic)
-                 2 = v_lead (stochastic — Gaussian noise from lead vehicle uncertainty)
+                 2 = v_lead (stochastic — Gaussian noise from lead-vehicle uncertainty)
+
+    The wrapper does two things: it forwards the deterministic next state from
+    the concrete plant, and it attaches the per-dimension noise std (sigma) that
+    the discretiser turns into the v_lead transition intervals.
+
+    v_lead floor:
+        The non-negativity floor on v_lead (a vehicle cannot travel backwards)
+        is enforced inside the plant itself (vehicle_plant.get_deterministic_
+        next_state returns max(0, v_lead)). The wrapper therefore does NOT clamp
+        — there is nothing left to clamp. (An earlier version clamped here as a
+        workaround for a plant-side coupling bug; that bug was fixed in the plant
+        and the workaround removed.)
+
+    Noise model:
+        - Default (sigma_v_fn=None): constant sigma_on_velocity, derived from
+          lead_noise_std and plant.noise_std combined via Pythagorean sum and
+          scaled by plant.dt. Constant across the state space.
+        - State-dependent (sigma_v_fn=callable): the caller supplies
+          sigma_v_fn(v_lead) -> sigma_v [m/s], evaluated at the source state.
+          NOTE: this makes sigma vary across a cell. The current discretiser
+          kernel assumes a SINGLE sigma per cell and is only sound for constant
+          noise; make_image_box() carries a guard that will raise if a
+          state-dependent sigma is used without first extending box_prob_minmax
+          to range over the sigma interval. The callable path is provided for
+          the K-heterogeneity diagnostic (k_sampling.py), which does its own
+          enumeration and does not go through the kernel.
     """
 
-    def __init__(self, plant, controller, lead_noise_std=2.0):
+    def __init__(self, plant, controller, lead_noise_std=2.0, sigma_v_fn=None):
         self.plant = plant
         self.ctrl  = controller
+        self.sigma_v_fn = sigma_v_fn  # callable v_lead -> sigma_v (m/s), or None for constant
 
         self.accel_sigma = np.sqrt(self.plant.noise_std**2 + lead_noise_std**2)
         self.sigma_on_velocity = self.accel_sigma * self.plant.dt
 
-        print(f"[PlantWrapper] lead_noise_std={lead_noise_std} m/s²  "
-              f"->  sigma_on_velocity={self.sigma_on_velocity:.4f} m/s  "
-              f"(kernel on v_lead only; gap and v_ego are deterministic)")
+        if sigma_v_fn is None:
+            print(f"[PlantWrapper] lead_noise_std={lead_noise_std} m/s²  "
+                  f"->  sigma_on_velocity={self.sigma_on_velocity:.4f} m/s  "
+                  f"(constant; kernel on v_lead only)")
+        else:
+            print(f"[PlantWrapper] state-dependent sigma_v provided  "
+                  f"(sigma_v(0)={sigma_v_fn(0):.4f}, "
+                  f"sigma_v(30)={sigma_v_fn(30):.4f} m/s)  "
+                  f"(diagnostic use only — not sound through the current kernel)")
 
     def get_action_space(self):
         return {
@@ -34,70 +67,20 @@ class PlantWrapper(StochasticHybridSystem):
         """
         Returns (next_state_det, sigma_per_dim).
 
-        sigma_per_dim = [0.0, 0.0, sigma_on_velocity]
-
-        BUG FIX (v_lead physical floor):
-        ---------------------------------------------------------------------------
-        SYMPTOM:
-            In the generated PRISM file, states with low v_lead (≈ 0 m/s) route
-            almost all probability mass to safe_sink (102765) under brake and
-            emergency actions. Specifically, from state (40 m, 15 m/s, 0 m/s)
-            with brake (a = -4 m/s²), ≈99.7% goes to safe_sink.
-
-        ROOT CAUSE — CONFIRMED by back-calculating from PRISM intervals:
-            plant.get_deterministic_next_state() incorrectly couples the ego
-            vehicle's acceleration into the v_lead update. The reconstructed
-            formula from the PRISM evidence is:
-
-                next_v_lead = v_lead + v_ego * a_ego * K * dt   (WRONG)
-
-            where K ≈ 0.3 (a gain term or residual factor left during development).
-            For (v_lead=0, v_ego=15, a_ego=-4, dt=0.1):
-
-                next_v_lead = 0 + 15 * (-4) * 0.3 * 0.1 = -1.8 m/s
-
-            With the Gaussian centred at -1.8 m/s and sigma=0.2 m/s, only 0.3%
-            of the distribution falls inside the grid (boundary at -1.25 m/s),
-            hence 99.7% routes to safe_sink. This is confirmed across multiple
-            states in the PRISM file:
-              - (v_lead=0.5, v_ego=20, brake): next_v_lead ≈ -1.3 → P(sink) ≈ 60% ✓
-              - (v_lead=5.0, v_ego=20, emergency): next_v_lead ≈ -0.88 → P(sink) ≈ 4% ✓
-              - (v_lead=3.5, v_ego=20, brake): next_v_lead ≈ 1.7 → 0% sink ✓
-
-        CORRECT FORMULA in plant.py should be:
-            next_v_lead = max(0.0, v_lead + a_lead_deterministic * dt)
-
-            where a_lead_deterministic is the lead vehicle's own deterministic
-            acceleration (typically 0.0 or a scenario-specific constant), with
-            NO term involving a_ego. Search plant.get_deterministic_next_state
-            for any expression that multiplies a_ego (or 'action', 'u', 'acc',
-            or any acceleration variable) into the third component of the
-            returned array, and remove it.
-
-        WORKAROUND APPLIED HERE:
-            Clamp next_v_lead to >= 0 m/s. This is physically correct (a stopped
-            lead vehicle stays stopped) and fully corrects all scenario states
-            where v_lead = 0.
-
-            LIMITATION: For states where v_lead > 0, the plant still computes a
-            subtracted quantity before the clamp, e.g. v_lead=3.5 → 3.5-1.8=1.7
-            (positive, not clamped). The clamped result matches the physical value
-            only when the formula output would go below 0. For a fully correct
-            abstraction, fix plant.py.
-        ---------------------------------------------------------------------------
+        next_state_det : deterministic next (gap, v_ego, v_lead) from the plant.
+                         v_lead is already floored at 0 inside the plant.
+        sigma_per_dim  : [0.0, 0.0, sigma_v]; gap and v_ego are deterministic,
+                         v_lead carries Gaussian noise. sigma_v is either the
+                         constant self.sigma_on_velocity or self.sigma_v_fn(s[2]).
         """
         next_state_det = self.plant.get_deterministic_next_state(s, a)
 
-        # --- BUG FIX: v_lead physical floor ---
-        # Clamp v_lead (dim 2) to >= 0. Vehicles cannot travel backwards.
-        # This corrects the worst-case states (v_lead ≈ 0) where the plant bug
-        # drives next_v_lead strongly negative → almost all mass to safe_sink.
-        # For a complete fix, remove the a_ego coupling in plant.py (see above).
-        if next_state_det[2] < 0.0:
-            next_state_det = np.array(next_state_det, dtype=float)  # defensive copy
-            next_state_det[2] = 0.0
+        if self.sigma_v_fn is None:
+            sigma_v = self.sigma_on_velocity
+        else:
+            sigma_v = self.sigma_v_fn(s[2])  # depends on source state's v_lead
 
-        sigma_per_dim = np.array([0.0, 0.0, self.sigma_on_velocity])
+        sigma_per_dim = np.array([0.0, 0.0, sigma_v])
         return next_state_det, sigma_per_dim
 
 

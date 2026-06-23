@@ -6,81 +6,217 @@ from src.abstraction.types.grid import Grid
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
-# --- HELPER: FAST MATH ---
+# =====================================================================
+#  BRANCH: soudjani2013-abstraction  —  SOUND OVER-APPROXIMATION VERSION
+#
+#  Construction = Abate 2011 Markov set-chain (interval transitions)
+#                 populated by the SA13 Eq.3.11 per-transition RANGE bound.
+#
+#  Soundness condition (per-transition containment):
+#     T(A_j | s, a) in [P_lo, P_hi]  for EVERY continuous s in source cell A_i.
+#  Verified by tests/test_containment.py.
+#
+#  Key change vs the old kernel: deterministic dimensions (gap, v_ego) are no
+#  longer collapsed to the cell-centre image. The IMAGE BOX of the whole source
+#  cell is computed (corner evaluation; exact for the monotone AEBS map) and
+#  every target cell the image touches is bracketed. v_lead uses the tight
+#  [m, M] range bound.
+# =====================================================================
+
 SQRT2   = 1.4142135623730951
-SQRT2PI = 2.5066282746310002  # sqrt(2 * pi)
+SQRT2PI = 2.5066282746310002
 
 def fast_norm_cdf(x, mean, std):
     return 0.5 * (1 + math.erf((x - mean) / (std * SQRT2)))
 
-
-# --- BRANCH: soudjani2013-abstraction ---
-#
-# BUG FIX v2 (mu range): compute epsilon in next-state space.
-# BUG FIX v3 (crash wall): use CRASH_WALL = 0.0 instead of bins[0][0].
-#
-# BUG FIX v4 (crash early return):
-#   Previously, crash routing was applied ADDITIVELY at the end of
-#   _compute_kernel_accurate. For any state where next_center[0] <= 0,
-#   the Gaussian search over v_lead ran first and populated the transitions
-#   dict with valid intervals. Then p_crash = 1.0 was added on top, giving:
-#
-#       {1: (0.49, 1.0), 2: (0.49, 1.0), ..., 0: (1.0, 1.0)}
-#
-#   where p_min sums >> 1.0 — invalid for PRISM, which requires the
-#   lower bounds to admit at least one consistent probability distribution.
-#
-#   Root cause: gap is purely deterministic (sigma_gap = 0). When centroid
-#   dynamics predict next_gap <= 0, the crash probability is exactly 1 with
-#   no uncertainty. Gaussian noise in v_lead is irrelevant — the vehicle has
-#   already crashed regardless of where v_lead lands.
-#
-#   Fix: return {0: (1.0, 1.0)} immediately. The Gaussian search is skipped
-#   entirely, so there is nothing to add crash to later.
-
-
 # Physical gap at or below which the ego vehicle has crashed.
 CRASH_WALL = 0.0
 
+# Truncate + renormalise the v_lead Gaussian so all mass lands in-grid.
+#   True  -> no safe-sink tail for the noise; cleanly sound (recommended).
+#   False -> residual tail routed to the safe sink (small ~1e-6 approximation).
+TRUNCATE_NOISE = True
 
-def compute_range_epsilon_ij(mu_lo: float, mu_hi: float,
-                              tgt_lo: float, tgt_hi: float,
-                              sigma: float) -> float:
+# v_lead enumeration half-width, in sigmas (cells beyond this are negligible).
+SIGMA_CUTOFF = 6.0
+
+# Enumeration is expanded by this much before digitize() so that a cell the
+# image touches only at an exact grid boundary is still enumerated. The image
+# extremes can land on a bin edge (e.g. next_gap == 0.5 exactly), where float
+# rounding would otherwise place the boundary state one cell outside the
+# enumerated range. EPS (>> float64 noise ~1e-16, << one cell width) closes
+# that gap; the boundary cell enters with factor [0, 1], so it is sound.
+BOUNDARY_EPS = 1e-9
+
+
+# ---------------------------------------------------------------------
+#  SA13 Eq. 3.11 range, as the tight [m, M] of the box-probability factor
+# ---------------------------------------------------------------------
+def box_prob_minmax(mu_lo, mu_hi, tgt_lo, tgt_hi, sigma):
     """
-    Per-transition range-based error bound (Soudjani & Abate 2013, Eq. 3.11).
-
-    Computes the range of g(mu) = Phi((tgt_hi-mu)/sigma) - Phi((tgt_lo-mu)/sigma)
-    as mu varies over [mu_lo, mu_hi]:
-
-        epsilon_ij = max g(mu) - min g(mu)
-
-    Pass mu_lo = next_center[d] - half_cell[d],
-         mu_hi = next_center[d] + half_cell[d]   (NEXT-STATE space)
-
-    g peaks at mu* = (tgt_lo + tgt_hi) / 2 and is monotone on either side.
+    (min, max) of  g(mu) = Phi((tgt_hi-mu)/sigma) - Phi((tgt_lo-mu)/sigma)
+    as the kernel MEAN mu ranges over [mu_lo, mu_hi].  M - m == the SA13 epsilon.
+    g peaks at mu* = (tgt_lo+tgt_hi)/2 and is monotone on either side.
     """
     if sigma <= 0:
-        return 0.0
-
+        return (0.0, 0.0)
     def g(mu):
         return fast_norm_cdf(tgt_hi, mu, sigma) - fast_norm_cdf(tgt_lo, mu, sigma)
-
     mu_peak = (tgt_lo + tgt_hi) / 2.0
-
-    g_max = g(mu_peak) if mu_lo <= mu_peak <= mu_hi else max(g(mu_lo), g(mu_hi))
-    g_min = min(g(mu_lo), g(mu_hi))
-
-    return max(0.0, g_max - g_min)
+    M = g(mu_peak) if mu_lo <= mu_peak <= mu_hi else max(g(mu_lo), g(mu_hi))
+    m = min(g(mu_lo), g(mu_hi))
+    return (m, M)
 
 
-# --- WORKER FUNCTION ---
+def compute_range_epsilon_ij(mu_lo, mu_hi, tgt_lo, tgt_hi, sigma):
+    """Kept as a diagnostic: epsilon = M - m (SA13 Eq. 3.11)."""
+    m, M = box_prob_minmax(mu_lo, mu_hi, tgt_lo, tgt_hi, sigma)
+    return max(0.0, M - m)
+
+
+# ---------------------------------------------------------------------
+#  Image box of the source cell under the deterministic dynamics.
+#  Evaluates the wrapper at the 8 corners; exact for monotone dynamics.
+# ---------------------------------------------------------------------
+def make_image_box(system_wrapper, center, half_cell, act_val):
+    """Returns (next_lo, next_hi, sigma_per_dim).
+
+    SOUNDNESS GUARD (constant sigma per cell):
+        The kernel below uses ONE sigma per dimension for the whole source cell.
+        That is exact only when the noise std is constant across the cell. We
+        therefore read sigma at every corner and assert it equals the centre
+        sigma. With constant noise this is a no-op. The moment sigma becomes
+        state-dependent (Track 2: speed-dependent process noise, or perception
+        noise injected per dimension), the corners disagree and this raises --
+        a deliberate trip-wire, because the kernel would otherwise be UNSOUND:
+        box_prob would need to be ranged over the sigma INTERVAL across the
+        cell (worst-case width), not evaluated at a single sigma. Do not remove
+        this guard to silence it; implement the sigma-ranging instead.
+    """
+    _, sigma_center = system_wrapper.get_next_state_distribution(center, act_val)
+    next_lo = [math.inf, math.inf, math.inf]
+    next_hi = [-math.inf, -math.inf, -math.inf]
+    sig_lo = [float(s) for s in sigma_center]
+    sig_hi = [float(s) for s in sigma_center]
+    for signs in itertools.product((-1.0, 1.0), repeat=3):
+        corner = np.array([center[d] + signs[d] * half_cell[d] for d in range(3)])
+        nd, sig = system_wrapper.get_next_state_distribution(corner, act_val)
+        for d in range(3):
+            if nd[d] < next_lo[d]: next_lo[d] = nd[d]
+            if nd[d] > next_hi[d]: next_hi[d] = nd[d]
+            if sig[d] < sig_lo[d]: sig_lo[d] = sig[d]
+            if sig[d] > sig_hi[d]: sig_hi[d] = sig[d]
+
+    for d in range(3):
+        if sig_hi[d] - sig_lo[d] > 1e-12:
+            raise ValueError(
+                f"sigma varies across the source cell in dim {d} "
+                f"(range [{sig_lo[d]:.6g}, {sig_hi[d]:.6g}]). The current kernel "
+                f"assumes a single sigma per cell and is only SOUND for constant "
+                f"noise. Before enabling state-dependent or perception noise, "
+                f"range box_prob_minmax over the sigma interval (use sig_hi for "
+                f"the upper transition bound, sig_lo for the lower).")
+
+    return next_lo, next_hi, sigma_center
+
+
+# ---------------------------------------------------------------------
+#  Sound kernel
+# ---------------------------------------------------------------------
+def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
+                             bins, grid_shape, total_states):
+    if next_hi[0] <= CRASH_WALL:
+        return {0: (1.0, 1.0)}                 # whole image has crashed
+    crash_possible = (next_lo[0] <= CRASH_WALL)
+
+    stoch = [d for d in range(3) if sigma_per_dim[d] > 0]
+
+    # in-grid v_lead mass over the mean range (for truncation renormalisation)
+    inside_lo, inside_hi = 1.0, 0.0
+    if stoch:
+        d = stoch[0]
+        for mu in (next_lo[d], next_hi[d]):
+            ins = fast_norm_cdf(bins[d][-1], mu, sigma_per_dim[d]) \
+                - fast_norm_cdf(bins[d][0],  mu, sigma_per_dim[d])
+            inside_lo = min(inside_lo, ins)
+            inside_hi = max(inside_hi, ins)
+
+    # per-dimension (cell, factor_lo, factor_hi)
+    dim_cells = []
+    for d in range(3):
+        lo_orig, hi = next_lo[d], next_hi[d]                 # UNCLAMPED image
+        lo_enum = max(lo_orig, CRASH_WALL) if d == 0 else lo_orig  # for enumeration
+        if sigma_per_dim[d] > 0:
+            nr  = SIGMA_CUTOFF * sigma_per_dim[d]
+            klo = max(0, int(np.digitize(lo_enum - nr - BOUNDARY_EPS, bins[d]) - 1))
+            khi = min(grid_shape[d] - 1, int(np.digitize(hi + nr + BOUNDARY_EPS, bins[d]) - 1))
+            cells = []
+            for k in range(klo, khi + 1):
+                m, M = box_prob_minmax(lo_orig, hi, bins[d][k], bins[d][k + 1],
+                                       sigma_per_dim[d])
+                if TRUNCATE_NOISE and inside_hi > 0.0:
+                    m = m / inside_hi
+                    M = M / inside_lo if inside_lo > 0.0 else M
+                if M > 1e-12:
+                    cells.append((k, m, M))
+            dim_cells.append(cells)
+        else:
+            klo = max(0, int(np.digitize(lo_enum - BOUNDARY_EPS, bins[d]) - 1))
+            khi = min(grid_shape[d] - 1, int(np.digitize(hi + BOUNDARY_EPS, bins[d]) - 1))
+            cells = []
+            for k in range(klo, khi + 1):
+                clo, chi = bins[d][k], bins[d][k + 1]
+                # certain coverage requires the FULL UNCLAMPED image inside this cell;
+                # if part of the source image crosses the crash wall, no normal cell
+                # is certainly reached, so the lower factor must be 0.
+                f_lo = 1.0 if (lo_orig >= clo and hi <= chi) else 0.0
+                cells.append((k, f_lo, 1.0))
+            dim_cells.append(cells)
+
+    transitions = {}
+    for (kg, glo, ghi) in dim_cells[0]:
+        for (kv, vlo, vhi) in dim_cells[1]:
+            for (kl, llo, lhi) in dim_cells[2]:
+                p_lo = glo * vlo * llo
+                p_hi = ghi * vhi * lhi
+                if p_hi <= 1e-12:
+                    continue
+                flat = 0; mult = 1; idx = (kg, kv, kl)
+                for i in reversed(range(3)):
+                    flat += idx[i] * mult; mult *= grid_shape[i]
+                if flat in transitions:
+                    a, b = transitions[flat]
+                    transitions[flat] = (min(a, p_lo), max(b, p_hi))
+                else:
+                    transitions[flat] = (p_lo, p_hi)
+
+    if crash_possible:
+        transitions[0] = (0.0, 1.0)
+
+    # safe sink for the v_lead tail (only when NOT truncating)
+    if stoch and not TRUNCATE_NOISE:
+        tail_lo = max(0.0, 1.0 - inside_hi)
+        tail_hi = max(0.0, 1.0 - inside_lo)
+        if tail_hi > 1e-9:
+            if total_states in transitions:
+                lo, hi = transitions[total_states]
+                transitions[total_states] = (min(1.0, lo + tail_lo),
+                                             min(1.0, hi + tail_hi))
+            else:
+                transitions[total_states] = (tail_lo, tail_hi)
+
+    return transitions
+
+
+# ---------------------------------------------------------------------
+#  Worker
+# ---------------------------------------------------------------------
 def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
                   system_action_space, system_wrapper, grid_resolution):
     results = []
 
     def get_flat_index(idx_tuple):
-        flat = 0
-        multiplier = 1
+        flat = 0; multiplier = 1
         for i in reversed(range(3)):
             flat += idx_tuple[i] * multiplier
             multiplier *= grid_shape[i]
@@ -95,242 +231,66 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
     for idx in chunk_indices:
         src_id = get_flat_index(idx)
 
-        # Crash state (s=0) is absorbing
-        if src_id == 0:
+        if src_id == 0:                          # crash is absorbing
             for act_id in system_action_space.keys():
                 results.append((src_id, act_id, {0: (1.0, 1.0)}))
             continue
 
         center = index_to_cell_center(idx)
-
         half_cell = [
             (grid_bins[d][idx[d] + 1] - grid_bins[d][idx[d]]) / 2.0
             for d in range(3)
         ]
 
         for act_id, act_val in system_action_space.items():
-            next_c, sigma_per_dim = system_wrapper.get_next_state_distribution(
-                center, act_val
-            )
-
+            next_lo, next_hi, sigma_per_dim = make_image_box(
+                system_wrapper, center, half_cell, act_val)
             transitions = _compute_kernel_accurate(
-                next_c, sigma_per_dim, half_cell,
-                grid_bins, grid_shape, grid_total_states
-            )
-
-            if src_id == 1 and act_id == 0:
-                epsilons = [hi - lo for (lo, hi) in transitions.values()]
-                if epsilons:
-                    nonzero = sum(1 for e in epsilons if e > 1e-8)
-                    print(f"\n[DEBUG soudjani2013 v4] src=1, act=0 | "
-                          f"sigma={sigma_per_dim[2]:.4f} | "
-                          f"next_c[2]={next_c[2]:.4f} | "
-                          f"n_transitions={len(transitions)} | "
-                          f"non-trivial intervals: {nonzero}/{len(transitions)} | "
-                          f"epsilon range=[{min(epsilons):.5f}, {max(epsilons):.5f}]")
-                    sample_tgt, (lo, hi) = next(iter(transitions.items()))
-                    status = 'NON-ZERO' if lo > 1e-5 else 'floor (1e-6)'
-                    print(f"  sample -> s={sample_tgt}: [{lo:.6f}, {hi:.6f}]  "
-                          f"lower bound {status}")
-
+                next_lo, next_hi, sigma_per_dim,
+                grid_bins, grid_shape, grid_total_states)
             results.append((src_id, act_id, transitions))
     return results
 
 
-def _compute_kernel_accurate(next_center, sigma_per_dim, half_cell,
-                              bins, grid_shape, total_states):
-    """
-    Computes IMDP transitions with SA13 Eq. 3.11 range-based epsilon bounds.
-
-    BUG FIX v4 — Crash early return:
-        Gap is deterministic. When next_center[0] <= CRASH_WALL the transition
-        to s=0 is certain. We return immediately so the Gaussian search over
-        v_lead never runs, preventing the invalid additive combination:
-
-            Gaussian intervals  +  p_crash=1.0  =>  p_min sum >> 1.0
-
-        After this guard, crash can never occur inside the loop below, so the
-        additive crash block at the end of the old code is removed entirely.
-
-    Args:
-        next_center   : deterministic next state (centroid dynamics)
-        sigma_per_dim : [0, 0, sigma_v_lead] for AEBS
-        half_cell     : per-dim half-widths of source cell
-        bins          : grid bin edges per dimension
-        grid_shape    : number of cells per dimension
-        total_states  : safe_sink id = total_states
-
-    Returns:
-        dict { target_state_id: (p_min, p_max) }
-    """
-    # --- BUG FIX v4: crash early return ---
-    # Gap is deterministic (sigma[0] = 0). If centroid dynamics predict
-    # next_gap <= 0, the crash is certain — skip the Gaussian search entirely.
-    if next_center[0] <= CRASH_WALL:
-        return {0: (1.0, 1.0)}
-
-    # --- Grid search (only reached when next_gap > 0) ---
-    stochastic_dims = [d for d in range(3) if sigma_per_dim[d] > 0]
-    max_sigma = max(sigma_per_dim) if stochastic_dims else 0.0
-    noise_radius = 4.0 * max_sigma
-
-    ranges = []
-    for i in range(3):
-        if sigma_per_dim[i] > 0:
-            s = np.digitize(next_center[i] - noise_radius, bins[i]) - 1
-            e = np.digitize(next_center[i] + noise_radius, bins[i]) - 1
-        else:
-            s = np.digitize(next_center[i], bins[i]) - 1
-            e = s
-        ranges.append(range(max(0, s), min(grid_shape[i] - 1, e) + 1))
-
-    transitions = {}
-    total_inside_mass = 0.0
-
-    for tgt_idx in itertools.product(*ranges):
-
-        prob = 1.0
-        for d in range(3):
-            lo   = bins[d][tgt_idx[d]]
-            hi   = bins[d][tgt_idx[d] + 1]
-            mean = next_center[d]
-            if sigma_per_dim[d] > 0:
-                prob *= fast_norm_cdf(hi, mean, sigma_per_dim[d]) \
-                      - fast_norm_cdf(lo, mean, sigma_per_dim[d])
-            else:
-                prob *= 1.0 if lo <= mean < hi else 0.0
-
-        if prob <= 0.0:
-            continue
-
-        epsilon_ij = 0.0
-        for d in stochastic_dims:
-            mu_lo    = next_center[d] - half_cell[d]
-            mu_hi    = next_center[d] + half_cell[d]
-            tgt_lo_d = bins[d][tgt_idx[d]]
-            tgt_hi_d = bins[d][tgt_idx[d] + 1]
-            epsilon_ij += compute_range_epsilon_ij(
-                mu_lo, mu_hi, tgt_lo_d, tgt_hi_d, sigma_per_dim[d]
-            )
-
-        p_min = max(0.0, prob - epsilon_ij)
-        p_max = min(1.0, prob + epsilon_ij)
-
-        flat = 0
-        mult = 1
-        for i in reversed(range(3)):
-            flat += tgt_idx[i] * mult
-            mult *= grid_shape[i]
-
-        transitions[flat] = (max(1e-6, p_min), p_max)
-        total_inside_mass += prob
-
-    # --- Safe sink: residual Gaussian tail outside grid ---
-    # next_gap > 0 so p_crash = 0; all residual goes to safe_sink.
-    p_safe_sink = max(0.0, 1.0 - total_inside_mass)
-    if p_safe_sink > 1e-6:
-        epsilon_sink = 0.0
-        for d in stochastic_dims:
-            mu_lo     = next_center[d] - half_cell[d]
-            mu_hi     = next_center[d] + half_cell[d]
-            grid_lo_d = bins[d][0]
-            grid_hi_d = bins[d][-1]
-            epsilon_sink += compute_range_epsilon_ij(
-                mu_lo, mu_hi, grid_lo_d, grid_hi_d, sigma_per_dim[d]
-            )
-        s_min = max(1e-6, p_safe_sink - epsilon_sink)
-        s_max = min(1.0,  p_safe_sink + epsilon_sink)
-        if total_states in transitions:
-            lo, hi = transitions[total_states]
-            transitions[total_states] = (min(1.0, lo + s_min), min(1.0, hi + s_max))
-        else:
-            transitions[total_states] = (s_min, s_max)
-
-    return transitions
-
+# ---------------------------------------------------------------------
+#  Diagnostic only — E is NOT the soundness mechanism (kept for reporting).
+# ---------------------------------------------------------------------
 def compute_global_error_bound(imdp: IMDP, N_horizon: int) -> dict:
-    """
-    Computes the global abstraction error bound E from SA13 Eq. 3.13,
-    using range-based epsilon values (Corollary 3.8 / Eq. 3.11).
-
-    For each source state i and action a, the per-row epsilon sum is:
-        K(i, a) = sum_j  epsilon_ij
-    where epsilon_ij = (p_max_ij - p_min_ij) / 2
-    recovered from the stored IMDP interval strings.
-
-    The global error bound is:
-        E = N * max_{i, a} K(i, a)
-
-    This bounds:
-        | p_s0(A) - p_p0(Ap) | <= E
-    for every initial state, where p_s0(A) is the true continuous-system
-    invariance probability and p_p0(Ap) is the PRISM-computed value.
-
-    Args:
-        imdp:      The IMDP object after discretisation and sink finalisation.
-        N_horizon: Verification time horizon (number of steps, e.g. 100).
-
-    Returns:
-        dict with keys:
-            'E':           global error bound
-            'max_K':       max per-row epsilon sum (= E / N)
-            'worst_state': source state id achieving the maximum
-            'worst_action': action id achieving the maximum
-    """
-    max_K = 0.0
-    worst_state = None
-    worst_action = None
-
+    max_K = 0.0; worst_state = None; worst_action = None
     for src, actions in imdp.transitions.items():
         for act, dist_str in actions.items():
             K = 0.0
-            # Parse transition string: "[p_min, p_max] : (s'=j) + ..."
-            parts = dist_str.split(' + ')
-            for part in parts:
+            for part in dist_str.split(' + '):
                 try:
                     bracket = part.strip().split(']')[0].lstrip('[')
                     p_min_str, p_max_str = bracket.split(',')
-                    p_min = float(p_min_str.strip())
-                    p_max = float(p_max_str.strip())
-                    epsilon_ij = (p_max - p_min) / 2.0
-                    K += epsilon_ij
+                    K += (float(p_max_str) - float(p_min_str)) / 2.0
                 except (ValueError, IndexError):
-                    continue  # skip malformed entries
-
+                    continue
             if K > max_K:
-                max_K = K
-                worst_state = src
-                worst_action = act
+                max_K, worst_state, worst_action = K, src, act
+    return {'E': N_horizon * max_K, 'max_K': max_K,
+            'worst_state': worst_state, 'worst_action': worst_action}
 
-    E = N_horizon * max_K
-    return {
-        'E': E,
-        'max_K': max_K,
-        'worst_state': worst_state,
-        'worst_action': worst_action,
-    }
 
-# --- MAIN CLASS ---
+# ---------------------------------------------------------------------
 class DiscretizationAlgorithm:
     def __init__(self, grid: Grid):
         self.grid = grid
 
     def run(self, system, name: str) -> IMDP:
         print(f"[Discretizer] Parallel Processing '{name}' over {self.grid.total_states} states...")
-
         imdp = IMDP(name=name)
         actions = system.get_action_space()
 
         all_indices = list(itertools.product(*[range(d) for d in self.grid.shape]))
         num_cores = max(1, cpu_count() - 1)
-        fixed_chunk_size = 1000
-        chunks = [all_indices[i:i + fixed_chunk_size]
-                  for i in range(0, len(all_indices), fixed_chunk_size)]
+        chunks = [all_indices[i:i + 1000] for i in range(0, len(all_indices), 1000)]
         total_chunks = len(chunks)
 
         print(f"[Discretizer] Using {num_cores} cores. "
-              f"Mode: Range-based epsilon (Soudjani & Abate 2013, Eq. 3.11) — "
-              f"mu range in next-state space (v4).")
+              f"Sound over-approximation (image-box deterministic dims, "
+              f"SA13 range on v_lead, truncate_noise={TRUNCATE_NOISE}).")
 
         with Pool(processes=num_cores) as pool:
             func = partial(process_chunk,
@@ -340,21 +300,17 @@ class DiscretizationAlgorithm:
                            system_action_space=actions,
                            system_wrapper=system,
                            grid_resolution=np.array(self.grid.resolution))
-
             counter = 0
             for batch_results in pool.imap_unordered(func, chunks):
                 counter += 1
                 if counter % 10 == 0 or counter == total_chunks:
-                    percent = (counter / total_chunks) * 100
-                    print(f"[Discretizer] Progress: {percent:.1f}% "
+                    print(f"[Discretizer] Progress: {(counter/total_chunks)*100:.1f}% "
                           f"({counter}/{total_chunks})", end='\r')
-
                 for (src_id, act_id, transitions) in batch_results:
                     if not transitions:
                         continue
-                    updates = []
-                    for tgt_id, (p_min, p_max) in transitions.items():
-                        updates.append(f"[{p_min:.8f}, {p_max:.8f}] : (s'={tgt_id})")
+                    updates = [f"[{p_min:.8f}, {p_max:.8f}] : (s'={tgt_id})"
+                               for tgt_id, (p_min, p_max) in transitions.items()]
                     imdp.add_transition(src_id, act_id, " + ".join(updates))
 
         print("\n[Discretizer] Aggregation Complete!")
