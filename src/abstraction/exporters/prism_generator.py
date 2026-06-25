@@ -83,7 +83,8 @@ class PrismModelGenerator:
         f.write("// --- SEMANTIC LABELS ---\n")
         state_var = "s" 
         
-        for name, states in all_labels.items():
+        for name in sorted(all_labels):
+            states = all_labels[name]
             if not states:
                 continue
 

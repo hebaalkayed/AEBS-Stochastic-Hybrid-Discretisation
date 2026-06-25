@@ -1,23 +1,19 @@
 """
-EXHAUSTIVE containment test — checks every (source cell, action) transition.
+EXHAUSTIVE containment test — checks every (source cell, action) transition of
+the injected lead-model abstraction against sampled true probabilities.
 
-Soundness condition (per transition):
-    T(A_j | s, a)  in  [P_lo, P_hi]   for every continuous s in source cell A_i.
+Injected-only: the lead
+behaviour comes from a LeadModel, default 'static', overridable with
+LEAD_MODEL=steady. The grid v_lead band is pinned to the model's vl_bounds.
+PRESET selects resolution; keep it on the grid you intend to ship.
 
-Features:
-  - parallel across CPU cores (same Pool model as your pipeline)
-  - STREAMING: prints one line per completed chunk, flushes immediately
-  - PERSISTENT: appends results to containment_progress.csv as it goes, so
-    partial data survives a crash / Ctrl-C
-  - RESUMABLE: on restart, skips chunks already recorded in the progress file
-    and finishes only the remaining ("unfinished") chunks
-  - any violations are written to containment_violations.csv with the exact
-    (source, action, target, true prob, stored interval)
+NOTE: this validates the in-memory kernel (make_image_box + _compute_kernel_
+accurate), not the generated .prism file. A file-parsing containment test is on
+the roadmap to close that gap.
 
-Run from the project root:
-    python -m tests.test_containment_full
-or directly:
-    python tests/test_containment_full.py
+Streaming, persistent, resumable (per-model CSVs).
+Run:  python -m tests.test_containment_full
+      LEAD_MODEL=steady python -m tests.test_containment_full
 """
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -38,20 +34,28 @@ from src.abstraction.algorithms.discretizer import (
 from src.abstraction.types.grid import Grid
 
 # ---------------- configuration ----------------
-PRESET          = "medium_tight"
-CHUNK_SIZE      = 2000            # cells per work unit (also the resume granularity)
-SAMPLES_PER_DIM = (3, 3, 3)      # 27 interior samples per cell; raise for more rigour
-TOLERANCE       = 1e-7           # above float64 CDF noise (~1e-10), below any real prob
-PROGRESS_CSV    = "containment_progress.csv"
-VIOLATIONS_CSV  = "containment_violations.csv"
+PRESET          = "coarse"
+LEAD_MODEL      = os.environ.get("LEAD_MODEL", "static")   # injected-only; default shipped model
+CHUNK_SIZE      = 2000
+SAMPLES_PER_DIM = (3, 3, 3)
+TOLERANCE       = 1e-7
 CRASH_WALL      = 0.0
+_tag            = LEAD_MODEL
+PROGRESS_CSV    = f"containment_progress_{_tag}.csv"
+VIOLATIONS_CSV  = f"containment_violations_{_tag}.csv"
 # ------------------------------------------------
 
 
 def build_wrapper():
     plant = VehiclePlant(coordinate_system="relative_frame")
     controller = AEBSController(mode="safe")
-    return PlantWrapper(plant, controller, lead_noise_std=2.0)
+    from src.abstraction.profiles.lead_model import get_lead_model
+    return PlantWrapper(plant, controller, lead_model=get_lead_model(LEAD_MODEL))
+
+
+def build_grid():
+    from src.abstraction.profiles.lead_model import get_lead_model
+    return Grid(preset=PRESET, vl_bounds=get_lead_model(LEAD_MODEL).vl_bounds())
 
 
 def flat_of(idx, shape):
@@ -62,7 +66,6 @@ def flat_of(idx, shape):
 
 
 def true_transition_probs(wrapper, s, a_val, bins, shape):
-    """Exact T(.|s,a) from one continuous state s (truncated+renormalised v_lead)."""
     nd, spd = wrapper.get_next_state_distribution(np.asarray(s, dtype=float), a_val)
     if nd[0] <= CRASH_WALL:
         return {0: 1.0}
@@ -77,8 +80,6 @@ def true_transition_probs(wrapper, s, a_val, bins, shape):
     sv = spd[2]
     inside = (fast_norm_cdf(bins[2][-1], nd[2], sv) - fast_norm_cdf(bins[2][0], nd[2], sv)) \
         if TRUNCATE_NOISE else 1.0
-
-    # restrict the v_lead sweep to a neighbourhood of the mean (speed)
     nr  = 7.0 * sv
     jlo = max(0, int(np.digitize(nd[2] - nr, bins[2]) - 1))
     jhi = min(shape[2] - 1, int(np.digitize(nd[2] + nr, bins[2]) - 1))
@@ -99,17 +100,13 @@ def check_chunk(args):
     actions = wrapper.get_action_space()
     ng, nv, nl = SAMPLES_PER_DIM
 
-    n_cells = 0
-    n_viol = 0
+    n_cells = n_viol = 0
     worst = 0.0
     worst_rec = None
 
     for idx in cell_indices:
         n_cells += 1
         src_flat = flat_of(idx, shape)
-        # flat 0 is the absorbing crash sink: the pipeline forces it to
-        # {0:(1,1)} by modelling choice (once crashed, stay crashed). The
-        # kernel never runs on it, so there is nothing to validate here.
         if src_flat == 0:
             continue
         center = np.array([(bins[d][idx[d]] + bins[d][idx[d] + 1]) / 2 for d in range(3)])
@@ -121,7 +118,6 @@ def check_chunk(args):
         for a_id, a_val in actions.items():
             nlo, nhi, spd = make_image_box(wrapper, center, half, a_val)
             stored = _compute_kernel_accurate(nlo, nhi, spd, bins, shape, total)
-
             for g in gs:
                 for v in vs:
                     for l in ls:
@@ -149,7 +145,7 @@ def load_done(progress_csv):
 
 
 def main():
-    grid = Grid(preset=PRESET)
+    grid = build_grid()
     bins = [np.asarray(b, dtype=float) for b in grid.bins]
     shape = list(grid.shape)
     total = grid.total_states
@@ -161,10 +157,10 @@ def main():
     done = load_done(PROGRESS_CSV)
     todo = [c for c in chunks if c[0] not in done]
 
-    print(f"Grid {PRESET}: {len(all_idx):,} cells x {3} actions")
-    print(f"Chunks: {len(chunks)} total | {len(done)} already done | {len(todo)} to do")
+    print(f"Lead='{_tag}' | grid {PRESET} | {len(all_idx):,} cells x 3 actions")
+    print(f"Chunks: {len(chunks)} | done {len(done)} | todo {len(todo)}")
     if not todo:
-        print("Nothing left to do. Delete the progress CSV to re-run from scratch.")
+        print("Nothing left to do. Delete the progress CSV to re-run.")
         return
 
     if not os.path.exists(PROGRESS_CSV):
@@ -177,12 +173,9 @@ def main():
     total_cells = total_viol = 0
     global_worst = 0.0
     t0 = time.time()
-    # Override with e.g. CONTAINMENT_CORES=4 to cap thermal load on a laptop;
-    # leave unset to use all-but-one core (fine on a cooled cluster node).
     env_cores = os.environ.get("CONTAINMENT_CORES")
     ncore = int(env_cores) if env_cores else max(1, cpu_count() - 1)
-    print(f"Using {ncore} cores. Streaming results below "
-          f"(safe to Ctrl-C; rerun to resume).\n")
+    print(f"Using {ncore} cores.\n")
 
     try:
         with Pool(ncore) as pool:
@@ -190,26 +183,22 @@ def main():
                 total_cells += ncell
                 total_viol += nviol
                 global_worst = max(global_worst, worst)
-
                 with open(PROGRESS_CSV, "a") as f:
                     f.write(f'{cid},{ncell},{nviol},{worst:.3e},"{rec}"\n')
                 if nviol > 0 and rec is not None:
                     with open(VIOLATIONS_CSV, "a") as f:
                         f.write(f"{rec[0]},{rec[1]},{rec[2]},{rec[3]},{rec[4]},{rec[5]},{worst:.3e}\n")
-
                 elapsed = time.time() - t0
                 rate = total_cells / elapsed if elapsed > 0 else 0.0
-                remaining = (len(todo) * CHUNK_SIZE - total_cells) / rate if rate > 0 else 0
-                print(f"chunk {cid:6d} | cells {total_cells:>9,} | "
-                      f"violations {total_viol:>4} | worst {global_worst:.2e} | "
-                      f"{rate:6.0f} cells/s | ~{remaining/60:5.0f} min left", flush=True)
+                print(f"chunk {cid:6d} | cells {total_cells:>9,} | violations {total_viol:>4} | "
+                      f"worst {global_worst:.2e} | {rate:6.0f} cells/s", flush=True)
     except KeyboardInterrupt:
-        print("\nInterrupted. Progress saved — rerun to resume the unfinished chunks.")
+        print("\nInterrupted. Progress saved — rerun to resume.")
         return
 
-    print(f"\nDONE. cells checked this run = {total_cells:,} | "
-          f"total violations = {total_viol} | worst excess = {global_worst:.2e}")
-    print("PASS — abstraction is per-transition sound across the full grid."
+    print(f"\nDONE [{_tag}]. cells checked this run = {total_cells:,} | "
+          f"violations = {total_viol} | worst excess = {global_worst:.2e}")
+    print(f"PASS — '{_tag}' model is per-transition sound across its grid."
           if total_viol == 0 else
           f"FAIL — {total_viol} violations; see {VIOLATIONS_CSV}")
 

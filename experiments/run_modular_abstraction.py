@@ -19,7 +19,7 @@ def main():
     #   True  = 72-state micro-world POC (hand-traceable, for validation)
     #   False = Full production system (~100k states)
     # ================================================================
-    RUN_POC = True
+    RUN_POC = False
 
     ENABLE_NOISE = False
 
@@ -36,6 +36,7 @@ def main():
             'vl_bounds': (-2, 3),    # 3-sigma coverage → 6 v_lead cells (-2,-1,0,1,2,3)
         }                            # captures 99.6% of mass (was 64.6% with (0,1))
         lead_noise = 0.5     # scaled for micro-world (production uses 2.0)
+        lead_model=None
         out_path = "artifacts/micro_world_system.prism"
 
     else:
@@ -44,12 +45,23 @@ def main():
         plant = VehiclePlant(coordinate_system='relative_frame')
         controller = AEBSController(mode='safe')
 
-        grid_preset = 'fast_medium'
+        grid_preset = 'coarse'
         grid_bounds = None
         lead_noise = 2.0
+        lead_model='static'
         out_path = "artifacts/modular_system.prism"
 
     print(f"Configuration: Preset='{grid_preset}' | Noise={ENABLE_NOISE}")
+
+    # The legacy lead_noise_std / lead_model=None path was removed; the pipeline
+    # is injected-only. POC needs its own LeadModel (noise 0.5, vl_bounds (-2,3))
+    # before it can run again. Fail loud here rather than crash with a cryptic
+    # KeyError inside get_lead_model(None). See roadmap: "POC LeadModel".
+    if RUN_POC and lead_model is None:
+        raise NotImplementedError(
+            "RUN_POC is unsupported until a POC LeadModel exists (noise 0.5, "
+            "vl_bounds (-2,3)). The legacy None path was removed from the "
+            "pipeline. Build POCStaticLead first.")
 
     start_time = time.time()
 
@@ -60,7 +72,7 @@ def main():
         grid_bounds=grid_bounds,
         enable_perception_noise=ENABLE_NOISE,
         output_path=out_path,
-        lead_noise_std=lead_noise,
+        lead_model=lead_model, 
     )
 
     elapsed = time.time() - start_time
