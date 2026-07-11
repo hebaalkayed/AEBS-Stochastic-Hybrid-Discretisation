@@ -3,6 +3,10 @@ import itertools
 import math
 from src.abstraction.types.imdp import IMDP
 from src.abstraction.types.grid import Grid
+from src.abstraction.types.cell_topology import (
+    BOUNDARY_EPS, certainly_within, cells_touched, escapes_top,
+    fully_outside_top, escapes_bottom, fully_outside_bottom, flat_index,
+)
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
@@ -40,13 +44,10 @@ TRUNCATE_NOISE = True
 # v_lead enumeration half-width, in sigmas (cells beyond this are negligible).
 SIGMA_CUTOFF = 6.0
 
-# Enumeration is expanded by this much before digitize() so that a cell the
-# image touches only at an exact grid boundary is still enumerated. The image
-# extremes can land on a bin edge (e.g. next_gap == 0.5 exactly), where float
-# rounding would otherwise place the boundary state one cell outside the
-# enumerated range. EPS (>> float64 noise ~1e-16, << one cell width) closes
-# that gap; the boundary cell enters with factor [0, 1], so it is sound.
-BOUNDARY_EPS = 1e-9
+# BOUNDARY_EPS and every boundary-convention comparison (cell assignment,
+# certain coverage, escape, enumeration, flat indexing) live in
+# src.abstraction.types.cell_topology -- the single source of truth for the
+# half-open [lo, hi) convention. Do not reintroduce inline comparisons here.
 
 
 # ---------------------------------------------------------------------
@@ -78,8 +79,18 @@ def compute_range_epsilon_ij(mu_lo, mu_hi, tgt_lo, tgt_hi, sigma):
 #  Image box of the source cell under the deterministic dynamics.
 #  Evaluates the wrapper at the 8 corners; exact for monotone dynamics.
 # ---------------------------------------------------------------------
-def make_image_box(system_wrapper, center, half_cell, act_val):
+def make_image_box(system_wrapper, cell_lo, cell_hi, act_val):
     """Returns (next_lo, next_hi, sigma_per_dim).
+
+    cell_lo and cell_hi are the EXACT per-dimension cell edge floats
+    (bins[d][k] and bins[d][k+1]), not a centre and half-width. Corners are
+    evaluated at these exact floats. Reconstructing corners as centre +/-
+    half-width is NOT bit-identical to the edges: (lo+hi)/2 - (hi-lo)/2 can
+    differ from lo by ulps, and a lower corner drifting ABOVE an included
+    lower face means the image box can exclude the image of a state that is
+    genuinely in the half-open cell. Evaluating at the exact edges makes the
+    box cover the closure of the cell exactly, which covers every in-cell
+    state with no ulp gap on the included faces.
 
     SOUNDNESS GUARD (constant sigma per cell):
         The kernel below uses ONE sigma per dimension for the whole source cell.
@@ -93,13 +104,15 @@ def make_image_box(system_wrapper, center, half_cell, act_val):
         cell (worst-case width), not evaluated at a single sigma. Do not remove
         this guard to silence it; implement the sigma-ranging instead.
     """
+    center = np.array([(cell_lo[d] + cell_hi[d]) / 2.0 for d in range(3)])
     _, sigma_center = system_wrapper.get_next_state_distribution(center, act_val)
     next_lo = [math.inf, math.inf, math.inf]
     next_hi = [-math.inf, -math.inf, -math.inf]
     sig_lo = [float(s) for s in sigma_center]
     sig_hi = [float(s) for s in sigma_center]
-    for signs in itertools.product((-1.0, 1.0), repeat=3):
-        corner = np.array([center[d] + signs[d] * half_cell[d] for d in range(3)])
+    for picks in itertools.product((0, 1), repeat=3):
+        corner = np.array([cell_lo[d] if picks[d] == 0 else cell_hi[d]
+                           for d in range(3)])
         nd, sig = system_wrapper.get_next_state_distribution(corner, act_val)
         for d in range(3):
             if nd[d] < next_lo[d]: next_lo[d] = nd[d]
@@ -129,17 +142,61 @@ def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
         return {0: (1.0, 1.0)}                 # whole image has crashed
     crash_possible = (next_lo[0] <= CRASH_WALL)
 
-    stoch = [d for d in range(3) if sigma_per_dim[d] > 0]
+    # ---- deterministic-dimension grid escape (top edge; bottom for non-gap dims) ----
+    # Cells are half-open [lo, hi), so an image point exactly on the grid's top
+    # edge is OUTSIDE the grid. Escaping mass must be routed to the safe sink
+    # (state id == total_states): leaving it unassigned makes the true kernel
+    # non-representable in the interval row, and a WHOLLY escaped image would
+    # otherwise produce an EMPTY row, i.e. a missing PRISM command and a
+    # deadlock in the composed model. Gap (d == 0) has no bottom escape: the
+    # region at and below the crash wall is handled by the crash routing above.
+    escape_possible = False
+    for d in range(3):
+        if sigma_per_dim[d] > 0:
+            continue
+        lo_orig, hi = next_lo[d], next_hi[d]
+        if fully_outside_top(lo_orig, bins[d]) or \
+                (d != 0 and fully_outside_bottom(hi, bins[d])):
+            return {total_states: (1.0, 1.0)}   # whole image outside the grid
+        if escapes_top(hi, bins[d]) or \
+                (d != 0 and escapes_bottom(lo_orig, bins[d])):
+            escape_possible = True
 
-    # in-grid v_lead mass over the mean range (for truncation renormalisation)
+    stoch = [d for d in range(3) if sigma_per_dim[d] > 0]
+    if len(stoch) > 1:
+        raise NotImplementedError(
+            "Truncation renormalisation assumes exactly one stochastic "
+            "dimension; extend the in-grid-mass bracketing before enabling "
+            "noise on a second dimension (Track 2).")
+
+    # in-grid v_lead mass over the mean range (for truncation renormalisation).
+    # ins(mu) = Phi(b_max - mu) - Phi(b_min - mu) is unimodal in mu with its
+    # peak at the grid-band midpoint (same structure as box_prob_minmax), so:
+    #   - its MIN over [mu_lo, mu_hi] is at an endpoint (inside_lo below is a
+    #     true lower bound -> M / inside_lo is a sound upper bound), and
+    #   - its MAX may be INTERIOR; the midpoint check below makes inside_hi a
+    #     true upper bound on ins over the whole mean range, so m / inside_hi
+    #     is a sound lower bound by  g(mu) >= m  and  ins(mu) <= inside_hi,
+    #     with no auxiliary lemma about the renormalised ratio required.
     inside_lo, inside_hi = 1.0, 0.0
     if stoch:
         d = stoch[0]
+        def _ins(mu):
+            return fast_norm_cdf(bins[d][-1], mu, sigma_per_dim[d]) \
+                 - fast_norm_cdf(bins[d][0],  mu, sigma_per_dim[d])
         for mu in (next_lo[d], next_hi[d]):
-            ins = fast_norm_cdf(bins[d][-1], mu, sigma_per_dim[d]) \
-                - fast_norm_cdf(bins[d][0],  mu, sigma_per_dim[d])
+            ins = _ins(mu)
             inside_lo = min(inside_lo, ins)
             inside_hi = max(inside_hi, ins)
+        band_mid = (bins[d][0] + bins[d][-1]) / 2.0
+        if next_lo[d] <= band_mid <= next_hi[d]:
+            inside_hi = max(inside_hi, _ins(band_mid))
+        if TRUNCATE_NOISE and inside_lo <= 0.0:
+            raise ValueError(
+                "In-grid mass lower bound is 0 for this source cell: the mean "
+                "range lies so far outside the grid band that truncation "
+                "renormalisation is ill-defined. Widen the grid band; do not "
+                "silently skip the renormalisation of the upper bound.")
 
     # per-dimension (cell, factor_lo, factor_hi)
     dim_cells = []
@@ -148,8 +205,7 @@ def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
         lo_enum = max(lo_orig, CRASH_WALL) if d == 0 else lo_orig  # for enumeration
         if sigma_per_dim[d] > 0:
             nr  = SIGMA_CUTOFF * sigma_per_dim[d]
-            klo = max(0, int(np.digitize(lo_enum - nr - BOUNDARY_EPS, bins[d]) - 1))
-            khi = min(grid_shape[d] - 1, int(np.digitize(hi + nr + BOUNDARY_EPS, bins[d]) - 1))
+            klo, khi = cells_touched(lo_enum, hi, bins[d], pad=nr)
             cells = []
             for k in range(klo, khi + 1):
                 m, M = box_prob_minmax(lo_orig, hi, bins[d][k], bins[d][k + 1],
@@ -161,15 +217,17 @@ def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
                     cells.append((k, m, M))
             dim_cells.append(cells)
         else:
-            klo = max(0, int(np.digitize(lo_enum - BOUNDARY_EPS, bins[d]) - 1))
-            khi = min(grid_shape[d] - 1, int(np.digitize(hi + BOUNDARY_EPS, bins[d]) - 1))
+            klo, khi = cells_touched(lo_enum, hi, bins[d])
             cells = []
             for k in range(klo, khi + 1):
-                clo, chi = bins[d][k], bins[d][k + 1]
-                # certain coverage requires the FULL UNCLAMPED image inside this cell;
-                # if part of the source image crosses the crash wall, no normal cell
-                # is certainly reached, so the lower factor must be 0.
-                f_lo = 1.0 if (lo_orig >= clo and hi <= chi) else 0.0
+                # Certain coverage requires the FULL UNCLAMPED image inside the
+                # half-open cell (strict upper inequality; see cell_topology.
+                # certainly_within for the rationale and the containment
+                # violation the non-strict version causes). If part of the
+                # source image crosses the crash wall, lo_orig <= 0 < clo for
+                # every non-crash cell, so the lower factor is 0 automatically.
+                f_lo = 1.0 if certainly_within(lo_orig, hi,
+                                               bins[d][k], bins[d][k + 1]) else 0.0
                 cells.append((k, f_lo, 1.0))
             dim_cells.append(cells)
 
@@ -181,9 +239,7 @@ def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
                 p_hi = ghi * vhi * lhi
                 if p_hi <= 1e-12:
                     continue
-                flat = 0; mult = 1; idx = (kg, kv, kl)
-                for i in reversed(range(3)):
-                    flat += idx[i] * mult; mult *= grid_shape[i]
+                flat = flat_index(kg, kv, kl, grid_shape)
                 if flat in transitions:
                     a, b = transitions[flat]
                     transitions[flat] = (min(a, p_lo), max(b, p_hi))
@@ -205,6 +261,14 @@ def _compute_kernel_accurate(next_lo, next_hi, sigma_per_dim,
             else:
                 transitions[total_states] = (tail_lo, tail_hi)
 
+    # partial deterministic escape: some (not all) states' images leave the grid
+    if escape_possible:
+        if total_states in transitions:
+            lo, hi = transitions[total_states]
+            transitions[total_states] = (lo, 1.0)
+        else:
+            transitions[total_states] = (0.0, 1.0)
+
     return transitions
 
 
@@ -216,11 +280,7 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
     results = []
 
     def get_flat_index(idx_tuple):
-        flat = 0; multiplier = 1
-        for i in reversed(range(3)):
-            flat += idx_tuple[i] * multiplier
-            multiplier *= grid_shape[i]
-        return flat
+        return flat_index(idx_tuple[0], idx_tuple[1], idx_tuple[2], grid_shape)
 
     def index_to_cell_center(idx_tuple):
         return np.array([
@@ -236,15 +296,12 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
                 results.append((src_id, act_id, {0: (1.0, 1.0)}))
             continue
 
-        center = index_to_cell_center(idx)
-        half_cell = [
-            (grid_bins[d][idx[d] + 1] - grid_bins[d][idx[d]]) / 2.0
-            for d in range(3)
-        ]
+        cell_lo = [grid_bins[d][idx[d]] for d in range(3)]
+        cell_hi = [grid_bins[d][idx[d] + 1] for d in range(3)]
 
         for act_id, act_val in system_action_space.items():
             next_lo, next_hi, sigma_per_dim = make_image_box(
-                system_wrapper, center, half_cell, act_val)
+                system_wrapper, cell_lo, cell_hi, act_val)
             transitions = _compute_kernel_accurate(
                 next_lo, next_hi, sigma_per_dim,
                 grid_bins, grid_shape, grid_total_states)
@@ -254,6 +311,10 @@ def process_chunk(chunk_indices, grid_bins, grid_shape, grid_total_states,
 
 # ---------------------------------------------------------------------
 #  Diagnostic only — E is NOT the soundness mechanism (kept for reporting).
+#  NOTE ON NAMING: K below is the SUM over the row's targets of the interval
+#  half-widths (p_max - p_min)/2, i.e. half the row's total interval width.
+#  It is not a mean; the pipeline log line calling it a "mean interval
+#  half-width" should be corrected, and the paper must not describe it as one.
 # ---------------------------------------------------------------------
 def compute_global_error_bound(imdp: IMDP, N_horizon: int) -> dict:
     max_K = 0.0; worst_state = None; worst_action = None

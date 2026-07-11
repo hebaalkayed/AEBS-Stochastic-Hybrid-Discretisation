@@ -1,5 +1,9 @@
 import numpy as np
 
+from src.abstraction.types.cell_topology import (
+    cell_of, flat_index, make_edges, edges_hash, n_cells_for,
+)
+
 GRID_PRESETS = {
     'debug':  {'res': (5.0, 2.0, 1.0), 'desc': "Fast Debug"},
     'coarse': {'res': (2.0, 1.0, 0.5), 'desc': "Initial Checks"},
@@ -58,26 +62,44 @@ class Grid:
         # 3. Create Bins (Cell Edges)
         # We offset by r/2 so that integer values (like 0.0, 1.0) land in
         # the centre of a cell rather than on a boundary.
+        # make_edges produces values bit-identical to the legacy
+        # np.arange(low - r/2, high + r + r/2, r) but fixes the edge COUNT by
+        # integer arithmetic, so it cannot drift by one across platforms
+        # (laptop vs cluster); see cell_topology.make_edges.
         self.bins = []
         for (low, high), r in zip(self.bounds, self.resolution):
-            edges = np.arange(low - r/2, high + r + r/2, r)
+            edges = make_edges(low, high, r)
+            assert len(edges) == n_cells_for(low, high, r) + 1, (
+                f"edge count {len(edges)} inconsistent with n_cells_for "
+                f"for bounds ({low}, {high}), resolution {r}")
             self.bins.append(edges)
 
         # 4. Calculate Shape
         self.shape = tuple(len(b) - 1 for b in self.bins)
         self.total_states = np.prod(self.shape)
 
+        # Fingerprint of the exact edge floats. Exact-edge behaviour is a
+        # property of specific float values, so a generation run (cluster) and
+        # a containment run (laptop) certify the same partition iff their
+        # hashes match. Record this in artifact metadata.
+        self.bins_hash = edges_hash(self.bins)
+
         # Sanity print so mismatch is immediately visible
         print(f"[Grid] preset={preset} | resolution={self.resolution}")
         print(f"[Grid] bounds: gap={x_bounds}, v_ego={v_bounds}, v_lead={vl_bounds}")
         print(f"[Grid] shape={self.shape} | total_states={self.total_states}")
+        print(f"[Grid] bins_hash={self.bins_hash[:16]}... (partition fingerprint)")
 
     def state_to_index(self, state):
-        """Maps continuous [gap, v_ego, v_lead] to grid indices (ix, iv, ivl)."""
+        """Maps continuous [gap, v_ego, v_lead] to grid indices (ix, iv, ivl).
+
+        Half-open assignment via cell_topology.cell_of: a value on a shared
+        edge belongs to the cell above; a value on the top edge is outside.
+        """
         indices = []
         for i, val in enumerate(state):
-            idx = np.digitize(val, self.bins[i]) - 1
-            if idx < 0 or idx >= self.shape[i]:
+            idx = cell_of(val, self.bins[i])
+            if idx is None:
                 return None
             indices.append(idx)
         return tuple(indices)
@@ -95,4 +117,7 @@ class Grid:
         return [(self.bins[i][idx], self.bins[i][idx+1]) for i, idx in enumerate(idx_tuple)]
 
     def get_flat_index(self, idx_tuple):
-        return np.ravel_multi_index(idx_tuple, self.shape)
+        # Same row-major layout as np.ravel_multi_index, but through the
+        # single shared definition (also used by the discretizer and the
+        # containment test). Returns a plain int.
+        return flat_index(idx_tuple[0], idx_tuple[1], idx_tuple[2], self.shape)

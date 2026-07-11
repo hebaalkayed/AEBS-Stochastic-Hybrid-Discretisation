@@ -47,7 +47,7 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     # --- DIAGNOSTIC ONLY: SA13 additive bound E (not the certificate) ---
     N_HORIZON = 10
     report = compute_global_error_bound(plant_imdp, N_HORIZON)
-    print(f"[Pipeline] (diagnostic) worst-row mean interval half-width K = {report['max_K']:.6f}")
+    print(f"[Pipeline] (diagnostic) worst-row interval half-width SUM K = {report['max_K']:.6f}")
     print(f"[Pipeline] (diagnostic) SA13 additive bound E = N*K = {report['E']:.6f}  (N={N_HORIZON})")
     print(f"[Pipeline] (diagnostic) worst (state, action) = ({report['worst_state']}, {report['worst_action']})")
     print("[Pipeline] (diagnostic) E is descriptive only; soundness is via containment, not E.")
