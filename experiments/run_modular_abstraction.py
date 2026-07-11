@@ -45,7 +45,7 @@ def main():
         plant = VehiclePlant(coordinate_system='relative_frame')
         controller = AEBSController(mode='safe')
 
-        grid_preset = 'coarse'
+        grid_preset = 'medium_tight'
         grid_bounds = None
         lead_noise = 2.0
         lead_model='static'
