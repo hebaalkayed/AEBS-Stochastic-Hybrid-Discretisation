@@ -9,7 +9,9 @@ from src.abstraction.types.abstracted_controller import ControllerModel
 from src.abstraction.types.perception_model import PerceptionModel
 from src.abstraction.exporters.prism_generator import PrismModelGenerator
 from src.abstraction.algorithms.discretizer import compute_global_error_bound
-from src.abstraction.profiles.lead_model import get_lead_model        # new injected path
+from src.abstraction.profiles.lead_model import get_lead_model
+from src.abstraction.exporters.drn_generator import DrnModelGenerator
+from src.abstraction.profiles.scenarios import SCENARIOS
 
 
 def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perception_noise=False,
@@ -22,7 +24,7 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     """
     lead = get_lead_model(lead_model)
     wrapper = PlantWrapper(plant, controller, lead_model=lead)
-    scenarios_list = lead.scenarios()
+    scenarios_list = SCENARIOS
     prefix = lead.prefix
     lead_desc = lead.name
     gb = dict(grid_bounds) if grid_bounds else {}
@@ -111,4 +113,15 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
         globals_dict={}, constants={'start_s': 'int'})
 
     print(f"[Pipeline] Wrote {output_path}")
+    
+    # DRN twin of the same IMDP (bypasses Storm's PRISM parser; scenario
+    # selection via scn_* labels + property filters instead of start_s).
+    drn_path = output_path.rsplit('.', 1)[0] + '.drn'
+    DrnModelGenerator(drn_path).generate(
+        plant_imdp,
+        controller_rules=ctrl_model.rules,
+        scenario_ids=scenarios,
+        init_state=scenarios.get('Safe_Cruising'))
+    
+    print(f"[Pipeline] Wrote drn {drn_path}")
     return output_path
