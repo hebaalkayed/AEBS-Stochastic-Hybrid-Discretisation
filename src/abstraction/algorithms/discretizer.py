@@ -30,6 +30,22 @@ from functools import partial
 SQRT2   = 1.4142135623730951
 SQRT2PI = 2.5066282746310002
 
+# Outward rounding at the 8-decimal print quantum: lower bounds rounded
+# DOWN, upper bounds rounded UP, clamped to [0, 1]. Widening printed
+# intervals preserves containment (an interval that contains the true
+# probability still contains it after widening), removing the previous
+# 5e-9 nearest-rounding quantisation noted in the paper. Float artefacts
+# in p*1e8 can widen a bound by one extra 1e-8 quantum; that is sound
+# and bounded by the quantum itself.
+_Q = 1e8
+
+def format_interval_outward(p_min, p_max):
+    lo = math.floor(p_min * _Q) / _Q
+    hi = math.ceil(p_max * _Q) / _Q
+    if lo < 0.0: lo = 0.0
+    if hi > 1.0: hi = 1.0
+    return f"[{lo:.8f}, {hi:.8f}]"
+
 def fast_norm_cdf(x, mean, std):
     return 0.5 * (1 + math.erf((x - mean) / (std * SQRT2)))
 
@@ -370,7 +386,9 @@ class DiscretizationAlgorithm:
                 for (src_id, act_id, transitions) in batch_results:
                     if not transitions:
                         continue
-                    updates = [f"[{p_min:.8f}, {p_max:.8f}] : (s'={tgt_id})"
+                    # updates = [f"[{p_min:.8f}, {p_max:.8f}] : (s'={tgt_id})"
+                      #          for tgt_id, (p_min, p_max) in transitions.items()]
+                    updates = [f"{format_interval_outward(p_min, p_max)} : (s'={tgt_id})"
                                for tgt_id, (p_min, p_max) in transitions.items()]
                     imdp.add_transition(src_id, act_id, " + ".join(updates))
 
