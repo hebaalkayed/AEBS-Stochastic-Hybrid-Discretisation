@@ -43,7 +43,7 @@ def main():
         print("Mode: FULL PRODUCTION SYSTEM")
 
         plant = VehiclePlant(coordinate_system='relative_frame')
-        controller = AEBSController(mode='safe')
+        controller = AEBSController(mode='industry')
 
         grid_preset = 'medium_tight'
         grid_bounds = None

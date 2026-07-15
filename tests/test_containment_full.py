@@ -65,6 +65,8 @@ from src.abstraction.types.grid import Grid
 # ---------------- configuration ----------------
 PRESET          = os.environ.get("GRID_PRESET", "medium_tight")
 LEAD_MODEL      = os.environ.get("LEAD_MODEL", "static")   # injected-only; default shipped model
+CONTROLLER_MODE = os.environ.get("CONTROLLER_MODE", "industry")
+
 CHUNK_SIZE      = 2000
 SAMPLES_PER_DIM = (3, 3, 3)
 TOLERANCE       = 1e-7
@@ -78,7 +80,7 @@ _tag            = LEAD_MODEL
 
 def build_wrapper():
     plant = VehiclePlant(coordinate_system="relative_frame")
-    controller = AEBSController(mode="safe")
+    controller = AEBSController(mode=CONTROLLER_MODE)
     from src.abstraction.profiles.lead_model import get_lead_model
     return PlantWrapper(plant, controller, lead_model=get_lead_model(LEAD_MODEL))
 
@@ -227,8 +229,10 @@ def main():
     # ---- run identity: everything the certificate depends on ----
     import src.abstraction.algorithms.discretizer as _disc
     kernel_hash = hashlib.sha256(Path(_disc.__file__).read_bytes()).hexdigest()
-    run_id = (f"{_tag}_{PRESET}_g{grid.bins_hash[:8]}"
-              f"_k{kernel_hash[:8]}_v{TEST_VERSION}")
+    actions = build_wrapper().get_action_space()
+    act_hash = hashlib.sha256(repr(sorted(actions.items())).encode()).hexdigest()[:8]
+    run_id = (f"{_tag}_{CONTROLLER_MODE}_{PRESET}_g{grid.bins_hash[:8]}"
+              f"_k{kernel_hash[:8]}_a{act_hash}_v{TEST_VERSION}")
     progress_csv = f"containment_progress_{run_id}.csv"
     violations_csv = f"containment_violations_{run_id}.csv"
     print(f"[Run] id = {run_id}")

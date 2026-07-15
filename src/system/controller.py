@@ -5,7 +5,7 @@ class AEBSController:
     Reactive Controller.
     Agnostic to scenario type. Reacts purely based on Observed Gap and Closing Speed.
     """
-    def __init__(self, dt=0.1, belief_noise_std=0.0, mode='safe', lead_behavior='static'):
+    def __init__(self, dt=0.1, belief_noise_std=0.0, mode='industry', lead_behavior='static'):
         self.dt = dt
         self.state = 'drive'
         self.belief_noise = belief_noise_std
