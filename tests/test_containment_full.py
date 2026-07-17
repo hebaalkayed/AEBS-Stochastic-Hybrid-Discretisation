@@ -4,9 +4,12 @@ the injected lead-model abstraction against sampled true probabilities.
 
 Injected-only: the lead
 behaviour comes from a LeadModel, default 'static', overridable with
-LEAD_MODEL=steady. The grid v_lead band is pinned to the model's vl_bounds.
-PRESET defaults to the certified grid (medium_tight) and is overridable with
-GRID_PRESET=coarse etc.; keep it on the grid you intend to ship.
+LEAD_MODEL=steady. The grid v_lead band is pinned to the model's vl_bounds
+unless VL_BOUNDS overrides it. Window bounds are overridable with
+X_BOUNDS=lo,hi V_BOUNDS=lo,hi VL_BOUNDS=lo,hi (continuous coordinates);
+the run identity binds them automatically through the partition fingerprint.
+PRESET defaults to the debug grid and is overridable with
+GRID_PRESET=medium_tight etc.; keep it on the grid you intend to ship.
 
 Check classes (v2):
   sample        true one-step probability at a sampled state falls outside the
@@ -40,6 +43,8 @@ per-model CSVs (containment_progress_static.csv etc.) are ignored.
 Run:  python -m tests.test_containment_full
       LEAD_MODEL=steady python -m tests.test_containment_full
       GRID_PRESET=coarse python -m tests.test_containment_full
+      GRID_PRESET=extra_fine X_BOUNDS=0,16 V_BOUNDS=4,16 VL_BOUNDS=5,15 \
+          python -m tests.test_containment_full
 """
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -63,7 +68,7 @@ from src.abstraction.types.cell_topology import cell_of, flat_index
 from src.abstraction.types.grid import Grid
 
 # ---------------- configuration ----------------
-PRESET          = os.environ.get("GRID_PRESET", "medium_tight")
+PRESET          = os.environ.get("GRID_PRESET", "debug")
 LEAD_MODEL      = os.environ.get("LEAD_MODEL", "static")   # injected-only; default shipped model
 CONTROLLER_MODE = os.environ.get("CONTROLLER_MODE", "industry")
 
@@ -85,9 +90,28 @@ def build_wrapper():
     return PlantWrapper(plant, controller, lead_model=get_lead_model(LEAD_MODEL))
 
 
+def _env_bounds(name):
+    """Parse an optional 'lo,hi' bounds override from the environment."""
+    v = os.environ.get(name)
+    if not v:
+        return None
+    lo, hi = (float(x) for x in v.split(","))
+    return (lo, hi)
+
+
 def build_grid():
     from src.abstraction.profiles.lead_model import get_lead_model
-    return Grid(preset=PRESET, vl_bounds=get_lead_model(LEAD_MODEL).vl_bounds())
+    kwargs = {}
+    xb = _env_bounds("X_BOUNDS")
+    vb = _env_bounds("V_BOUNDS")
+    vlb = _env_bounds("VL_BOUNDS")
+    if xb is not None:
+        kwargs["x_bounds"] = xb
+    if vb is not None:
+        kwargs["v_bounds"] = vb
+    kwargs["vl_bounds"] = vlb if vlb is not None \
+        else get_lead_model(LEAD_MODEL).vl_bounds()
+    return Grid(preset=PRESET, **kwargs)
 
 
 def true_transition_probs(wrapper, s, a_val, bins, shape, total):

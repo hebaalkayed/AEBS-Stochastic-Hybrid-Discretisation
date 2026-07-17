@@ -47,12 +47,12 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
     sink_id = plant_imdp.finalize_sink_state()
 
     # --- DIAGNOSTIC ONLY: SA13 additive bound E (not the certificate) ---
-    N_HORIZON = 10
-    report = compute_global_error_bound(plant_imdp, N_HORIZON)
-    print(f"[Pipeline] (diagnostic) worst-row interval half-width SUM K = {report['max_K']:.6f}")
-    print(f"[Pipeline] (diagnostic) SA13 additive bound E = N*K = {report['E']:.6f}  (N={N_HORIZON})")
-    print(f"[Pipeline] (diagnostic) worst (state, action) = ({report['worst_state']}, {report['worst_action']})")
-    print("[Pipeline] (diagnostic) E is descriptive only; soundness is via containment, not E.")
+    # N_HORIZON = 10
+    # report = compute_global_error_bound(plant_imdp, N_HORIZON)
+    # print(f"[Pipeline] (diagnostic) worst-row interval half-width SUM K = {report['max_K']:.6f}")
+    # print(f"[Pipeline] (diagnostic) SA13 additive bound E = N*K = {report['E']:.6f}  (N={N_HORIZON})")
+    # print(f"[Pipeline] (diagnostic) worst (state, action) = ({report['worst_state']}, {report['worst_action']})")
+    # print("[Pipeline] (diagnostic) E is descriptive only; soundness is via containment, not E.")
 
     # Labeling (Phase 1: crash state s=0)
     plant_imdp.add_label("crash", 0)
@@ -121,7 +121,7 @@ def run_modular_abstraction(plant, controller, grid_preset='medium', enable_perc
         plant_imdp,
         controller_rules=ctrl_model.rules,
         scenario_ids=scenarios,
-        init_state=scenarios.get('Safe_Cruising'))
+        init_state=scenarios.get('Safe_Cruising',next(iter(scenarios.values()), None)))
     
     print(f"[Pipeline] Wrote drn {drn_path}")
     return output_path

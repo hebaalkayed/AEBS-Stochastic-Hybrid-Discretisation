@@ -22,7 +22,9 @@ GRID_PRESETS = {
     'toy_v2': {'res': (5.0, 5.0, 2.0), 'desc': "Toy POC v2 (56 states, actions distinguishable)"},
     'micro':  {'res': (2.0, 2.0, 1.0), 'desc': "Micro-world POC (72 states, full fidelity)"},
     # 'micro_fine': {'res': (1.0, 2.0, 1.0), 'desc': "Micro-world fine gap (408 states, shows interval divergence)"}
-    'micro_fine': {'res': (1.0, 1.0, 1.0), 'desc': "Micro-world fine (714 states, boundary resolution)"}
+    'micro_fine': {'res': (1.0, 1.0, 1.0), 'desc': "Micro-world fine (714 states, boundary resolution)"},
+    
+    'extra_fine': {'res': (0.1, 0.1, 0.1), 'desc': "Following window (control-visible ego, sigma/cell=2)"}
 }
 
 class Grid:

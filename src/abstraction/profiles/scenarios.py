@@ -29,6 +29,15 @@ SCENARIOS = [
     ("Emergency_Brake",    ( 10.0, 10.0, 0.0)),
     ("Imminent_Collision", (  5.0, 30.0, 0.0)),
     ("Post_Collision",     (  0.0,  0.0, 0.0)),
+    # Following family: steady lead at 10 m/s (hold rule preserves it), ego
+    # closing at 4 m/s, margins spanning the noise-decidable band around the
+    # nominal settle distances (margin_search, 17 Jul 2026: settle min gap
+    # 3.4-3.8 m at ego 14; nominal fate is settle for all five rows).
+    ("Following_Critical", (5.0,  14.0, 10.0)),
+    ("Following_Tight",    (6.0,  14.0, 10.0)),
+    ("Following_Near",     (8.0,  14.0, 10.0)),
+    ("Following_Mid",      (10.0, 14.0, 10.0)),
+    ("Following_Wide",     (12.0, 14.0, 10.0)),
 ]
 
 
