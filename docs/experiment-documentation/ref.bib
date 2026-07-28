@@ -1,0 +1,175 @@
+% =====================================================================
+%  ref.bib  --  AEBS interval-MDP abstraction documentation
+%
+%  All entries verified against primary sources (HSCC / SIAM / Automatica
+%  / CAV / IEEE TAC / Euro NCAP). DOIs included only where confirmed from
+%  the publisher record.
+%
+%  Citation-key map to the code base:
+%    - "SA13 Eq. 3.11 range bound"  (discretizer.py)            -> Soudjani2013
+%    - "Abate 2011 Markov set-chain" (discretizer.py header)    -> ADD11
+%    - interval-MC / set-chain robust PCTL preservation         -> DAK12 (uses Hartfiel98)
+%    - lead profiles static/steady/unpredictable                -> EuroNCAP (CCRs/CCRm/CCRb)
+% =====================================================================
+
+@article{Soudjani2013,
+  author  = {Esmaeil Zadeh Soudjani, Sadegh and Abate, Alessandro},
+  title   = {Adaptive and Sequential Gridding Procedures for the Abstraction and Verification of Stochastic Processes},
+  journal = {SIAM Journal on Applied Dynamical Systems},
+  volume  = {12},
+  number  = {2},
+  pages   = {921--956},
+  year    = {2013}
+}
+
+@article{APLS08,
+  author  = {Abate, Alessandro and Prandini, Maria and Lygeros, John and Sastry, Shankar},
+  title   = {Probabilistic Reachability and Safety for Controlled Discrete Time Stochastic Hybrid Systems},
+  journal = {Automatica},
+  volume  = {44},
+  number  = {11},
+  pages   = {2724--2734},
+  year    = {2008}
+}
+
+@article{LSAZ22,
+  author  = {Lavaei, Abolfazl and Soudjani, Sadegh and Abate, Alessandro and Zamani, Majid},
+  title   = {Automated Verification and Synthesis of Stochastic Hybrid Systems: A Survey},
+  journal = {Automatica},
+  volume  = {146},
+  pages   = {110617},
+  year    = {2022}
+}
+
+@article{GLD00,
+  author  = {Givan, Robert and Leach, Sonia and Dean, Thomas},
+  title   = {Bounded-Parameter {Markov} Decision Processes},
+  journal = {Artificial Intelligence},
+  volume  = {122},
+  number  = {1--2},
+  pages   = {71--109},
+  year    = {2000}
+}
+
+@inproceedings{Storm,
+  author    = {Dehnert, Christian and Junges, Sebastian and Katoen, Joost-Pieter and Volk, Matthias},
+  title     = {A {Storm} is Coming: A Modern Probabilistic Model Checker},
+  booktitle = {Computer Aided Verification (CAV)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {10427},
+  pages     = {592--600},
+  publisher = {Springer},
+  year      = {2017},
+  doi       = {10.1007/978-3-319-63390-9_31}
+}
+
+@inproceedings{DAK12,
+  author    = {D'Innocenzo, Alessandro and Abate, Alessandro and Katoen, Joost-Pieter},
+  title     = {Robust {PCTL} Model Checking},
+  booktitle = {Proceedings of the 15th ACM International Conference on Hybrid Systems: Computation and Control (HSCC)},
+  pages     = {275--285},
+  publisher = {ACM},
+  year      = {2012},
+  doi       = {10.1145/2185632.2185673}
+}
+
+@book{Hartfiel98,
+  author    = {Hartfiel, Darald J.},
+  title     = {Markov Set-Chains},
+  series    = {Lecture Notes in Mathematics},
+  volume    = {1695},
+  publisher = {Springer},
+  year      = {1998}
+}
+
+@article{ADD11,
+  author  = {Abate, Alessandro and D'Innocenzo, Alessandro and Di Benedetto, Maria Domenica},
+  title   = {Approximate Abstractions of Stochastic Hybrid Systems},
+  journal = {IEEE Transactions on Automatic Control},
+  volume  = {56},
+  number  = {11},
+  pages   = {2688--2694},
+  year    = {2011}
+}
+
+@techreport{EuroNCAP,
+  author      = {{European New Car Assessment Programme}},
+  title       = {Test Protocol -- {AEB} Car-to-Car Systems},
+  institution = {Euro NCAP},
+  type        = {Test Protocol},
+  number      = {Version 3.0.3},
+  year        = {2021},
+  url         = {https://www.euroncap.com/}
+}
+
+@misc{KNP25,
+  author       = {Kwiatkowska, Marta and Norman, Gethin and Parker, David},
+  title        = {Probabilistic Model Checking: Applications and Trends},
+  year         = {2025},
+  eprint       = {2509.12968},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.LO},
+  url          = {https://arxiv.org/abs/2509.12968}
+}
+
+@misc{MathWorksAEB,
+  author       = {{The MathWorks, Inc.}},
+  title        = {Autonomous Emergency Braking with Sensor Fusion},
+  howpublished = {MATLAB Automated Driving Toolbox documentation},
+  note         = {Accessed 2026},
+  url          = {https://www.mathworks.com/help/driving/ug/autonomous-emergency-braking-with-sensor-fusion.html}
+}
+
+@inproceedings{Hulshof13,
+  author    = {Hulshof, Wesley and Knight, Iain and Edwards, Alix and Avery, Matthew and Grover, Colin},
+  title     = {Autonomous Emergency Braking Test Results},
+  booktitle = {Proceedings of the 23rd International Technical Conference on the Enhanced Safety of Vehicles (ESV)},
+  note      = {Paper Number 13-0168},
+  address   = {Seoul, Korea},
+  year      = {2013}
+}
+
+@inproceedings{ARCHCOMP20,
+  author    = {Johnson, Taylor T. and Manzanas Lopez, Diego and Musau, Patrick and Tran, Hoang-Dung and Botoeva, Elena and Leofante, Francesco and Maleki, Amir and Sidrane, Chelsea and Fan, Jiameng and Huang, Chao},
+  title     = {{ARCH-COMP20} Category Report: Artificial Intelligence and Neural Network Control Systems ({AINNCS}) for Continuous and Hybrid Systems Plants},
+  booktitle = {ARCH20. 7th International Workshop on Applied Verification of Continuous and Hybrid Systems (ARCH20)},
+  editor    = {Frehse, Goran and Althoff, Matthias},
+  series    = {EPiC Series in Computing},
+  volume    = {74},
+  pages     = {107--139},
+  publisher = {EasyChair},
+  doi       = {10.29007/9xgv},
+  year      = {2020}
+}
+
+@misc{SSS20,
+  author       = {Seshia, Sanjit A. and Sadigh, Dorsa and Sastry, S. Shankar},
+  title        = {Towards Verified Artificial Intelligence},
+  year         = {2020},
+  eprint       = {1606.08514},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.AI},
+  url          = {https://arxiv.org/abs/1606.08514}
+}
+
+@inproceedings{SGA15,
+  author    = {Soudjani, Sadegh Esmaeil Zadeh and Gevaerts, Caspar and Abate, Alessandro},
+  title     = {{FAUST}$^2$: Formal Abstractions of Uncountable-{STate} {STochastic} Processes},
+  booktitle = {Tools and Algorithms for the Construction and Analysis of Systems (TACAS)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {9035},
+  pages     = {272--286},
+  publisher = {Springer},
+  year      = {2015},
+  doi       = {10.1007/978-3-662-46681-0_23}
+}
+
+@inproceedings{CA15,
+  author    = {Coogan, Samuel and Arcak, Murat},
+  title     = {Efficient Finite Abstraction of Mixed Monotone Systems},
+  booktitle = {Proceedings of the 18th International Conference on Hybrid Systems: Computation and Control (HSCC)},
+  pages     = {58--67},
+  publisher = {ACM},
+  year      = {2015},
+  doi       = {10.1145/2728606.2728607}
+}
