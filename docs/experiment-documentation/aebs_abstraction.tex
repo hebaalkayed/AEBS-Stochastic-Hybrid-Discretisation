@@ -1163,22 +1163,23 @@
 		\label{fig:gaussmass}
 	\end{figure}
 	
-	//HERE
-	Each enumerated target is bracketed independently. The source cell
-	fixes one image interval, and this interval is the same whichever
-	target is considered; no density ever moves toward a target. The
-	target fixes the window and its middle. The bracket for the
-	transition to that target is the smallest and largest landing chance
-	over the shared image interval. Repeating this per candidate target
-	gives one bracket per transition. The brackets are bounds, not shares
-	of a fixed total: a target whose window lies away from the image
-	interval receives a bracket small at both ends, and the mass appears
-	instead in the transitions to the cells the image covers. The
-	candidate targets are the cells beneath the image interval widened by
-	$6\sigma_d$ on each side; six is a chosen cutoff, placed so that the
-	Gaussian mass beyond the window, of order $10^{-9}$, lies below the
-	numerical tolerance of the containment certificate
-	(Section~\ref{sec:cs:exp}).
+	Each candidate target is bracketed independently, over the same image
+	interval; repeating the computation per target gives one bracket per
+	transition. The brackets are bounds, not shares of a fixed total: a
+	target whose window lies away from the image interval receives a
+	bracket small at both ends, with the mass appearing in the
+	transitions to the cells the image covers. 
+	
+	The candidate targets are the cells beneath the image interval
+	extended on each side by the noise reach
+	$n_{\mathrm{cut}}\,\sigma_d$, where $n_{\mathrm{cut}}$ is a cutoff
+	parameter. Cells beyond the window are assigned probability zero, an
+	approximation of at most $\Phi(-n_{\mathrm{cut}})$ beyond each end of
+	the window, per transition; $n_{\mathrm{cut}}$ is chosen large enough
+	that this mass lies below the numerical tolerance of the containment
+	certificate and the precision of the model checker. The experiments
+	use $n_{\mathrm{cut}} = 6$, for which the ignored mass is of order
+	$10^{-9}$ (Section~\ref{sec:cs:exp}).
 	
 	\paragraph{State-independence of the noise.}
 	The bracket~\eqref{eq:mlo}--\eqref{eq:Mhi} evaluates $g$ at a single
@@ -1192,78 +1193,93 @@
 	cell, requires the values to agree to numerical tolerance, and aborts
 	otherwise.
 	
+	//HERE
+	
 	\paragraph{Truncation of the stochastic tail.}
 	The grid covers a bounded interval $[b_{\min}, b_{\max}]$ of the
-	stochastic dimension, its \emph{grid band}, while the Gaussian places
-	some mass outside every bounded interval. A small fraction of each
-	step's probability therefore falls outside the grid
-	(Figure~\ref{fig:truncation}). The construction truncates: the
-	dimension is taken to remain inside the band, and every stochastic
-	factor is divided by the in-band mass, so the in-band probabilities
-	again total one.
+	stochastic dimension, its \emph{grid band}. The cells of the
+	dimension partition the band: $b_{\min}$ is the lower edge of the
+	first cell and $b_{\max}$ the upper edge of the last. A density whose
+	prediction lies near an end of the band places part of its mass past
+	that end, outside the grid (Figure~\ref{fig:truncation}). The
+	abstraction assumes that the dimension remains inside the band, so
+	this mass must be removed from the factors. Each factor is divided by
+	the probability that the landing lies inside the band. Away from the
+	ends of the band this probability is $1$ and the factor is unchanged;
+	near an end it is smaller than $1$, and the division raises the
+	factor to compensate for the removed mass.
 	
 	\begin{figure}[h]
 		\centering
-		\begin{tikzpicture}
-			\fill[imdpLightBlue] (1.5,0) rectangle (6.5,2.5);
-			\draw[imdpBlue!70] (1.5,0) -- (1.5,2.5);
-			\draw[imdpBlue!70] (6.5,0) -- (6.5,2.5);
-			\node[font=\scriptsize\sffamily] at (1.5,-0.32) {$b_{\min}$};
-			\node[font=\scriptsize\sffamily] at (6.5,-0.32) {$b_{\max}$};
-			\node[font=\scriptsize\sffamily, imdpBlue!80!black] at (3.4,2.72) {grid band: in-band mass $\Pi(\mu)$};
-			\draw[gray!60] (-0.2,0) -- (8.6,0);
-			\begin{scope}
-				\clip plot[domain=6.5:8.6, samples=60] (\x, {2.2*exp(-((\x-5.7)^2)/(2*0.49))}) -- (8.6,0) -- (6.5,0) -- cycle;
-				\fill[pattern=north east lines, pattern color=accentOrange!70] (6.5,0) rectangle (8.6,2.3);
-			\end{scope}
-			\draw[thick, accentOrange] plot[domain=2.9:8.6, samples=90] (\x, {2.2*exp(-((\x-5.7)^2)/(2*0.49))});
-			\fill[black] (5.7,0) circle (1.2pt);
-			\node[font=\scriptsize\sffamily] at (5.7,-0.32) {$\mu$};
-			\node[font=\scriptsize\sffamily, accentOrange!80!black, align=left, anchor=west] at (7.35,1.5)
-			{out-of-band tail:\\renormalised away};
+		\begin{tikzpicture}[font=\small]
+			\fill[black!6] (0.8,0) rectangle (8.4,1.7);
+			\draw[gray] (0.8,0) -- (0.8,1.7);
+			\draw[gray] (8.4,0) -- (8.4,1.7);
+			\foreach \x in {1.75, 2.7, 3.65, 4.6, 5.55, 6.5, 7.45}
+			\draw[gray!40] (\x,0) -- (\x,1.7);
+			\node[below] at (0.8,-0.08) {$b_{\min}$};
+			\node[below] at (8.4,-0.08) {$b_{\max}$};
+			\node[above] at (1.6,1.75) {grid band};
+			\draw[gray!60] (0.2,0) -- (9.2,0);
+			\fill[green!15] (2.7,0) rectangle (3.65,0.14);
+			\draw[blue!60!black, thick]
+			(2.55,0.02) .. controls (2.85,0.12) and (2.95,1.15) .. (3.17,1.2)
+			.. controls (3.4,1.15) and (3.5,0.12) .. (3.8,0.02);
+			\node[below, green!50!black] at (3.17,-0.35) {all mass inside};
+			\fill[red!15] (7.45,0) rectangle (8.4,0.14);
+			\draw[blue!60!black, thick]
+			(7.45,0.02) .. controls (7.75,0.12) and (7.85,1.15) .. (8.07,1.2)
+			.. controls (8.3,1.15) and (8.42,0.35) .. (8.75,0.03);
+			\fill[red!30]
+			(8.4,0.02) .. controls (8.5,0.2) and (8.6,0.08) .. (8.75,0.03)
+			-- (8.4,0.02) -- cycle;
+			\node[below, red!60!black] at (8.0,-0.35) {mass past $b_{\max}$};
 		\end{tikzpicture}
-		\caption{Truncation of the stochastic tail. The grid band $[b_{\min}, b_{\max}]$
-			covers a bounded interval of a stochastic dimension, while the Gaussian
-			factor has unbounded support. The fraction of mass inside the band,
-			$\Pi(\mu)$, depends on the prediction $\mu$; the out-of-band tail is
-			renormalised away, conditioning the kernel on the band.}
+		\caption{Truncation of the stochastic tail. The cells of the
+			stochastic dimension partition the grid band $[b_{\min}, b_{\max}]$.
+			For an interior cell all mass lands inside the band and the division
+			changes nothing; for a cell at an end of the band, part of the mass
+			falls past the edge and the division compensates for its removal.}
 		\label{fig:truncation}
 	\end{figure}
 	
-	Truncating means conditioning: the stored probability of a target
-	becomes the probability of reaching it \emph{given} that the landing
-	stayed inside the band. A conditional probability is a division, the
-	target mass divided by the in-band mass, so the treatment needs a
-	divisor. The divisor is itself a landing chance, the same
-	formula~\eqref{eq:g} with the whole band as the window,
+	The divisor is the probability that the landing lies inside the band,
 	\begin{equation}
 		\Pi(\mu) = \Phi\!\Bigl(\tfrac{b_{\max}-\mu}{\sigma_d}\Bigr)
 		- \Phi\!\Bigl(\tfrac{b_{\min}-\mu}{\sigma_d}\Bigr),
 		\label{eq:inband}
 	\end{equation}
-	and therefore behaves exactly like $g$: it depends on the prediction,
-	and it is largest when the prediction sits at the band's midpoint,
-	falling on either side. The prediction varies over the image
-	interval, so the divisor varies with it, and a single divisor per
-	cell would be wrong for most states in the cell. The divisor is
-	therefore bracketed the same way as $g$: its smallest value over the
-	image interval, $\Pi_{\text{lo}}$, and its largest,
-	$\Pi_{\text{hi}}$, found at the interval ends or the band midpoint.
-	The division must not shrink the stored bracket. Dividing by a larger
-	number gives a smaller result, so the lower end is divided by the
-	largest divisor and the upper end by the smallest:
+	where
+	\begin{itemize}
+		\item $\Pi(\mu)$ is the probability that a landing with prediction
+		$\mu$ lies inside the band $[b_{\min}, b_{\max}]$.
+	\end{itemize}
+	The stored probability of a target cell is then the conditional
+	probability of reaching it given that the landing lies inside the
+	band, the quotient $g(\mu)/\Pi(\mu)$. The quotient must remain valid
+	for every continuous state of the source cell, and the predictions of
+	those states span the image interval, so the divisor is bracketed
+	over the image interval. The function $\Pi$ is largest when the
+	prediction is at the midpoint of the band and decreases on either
+	side. Its smallest value over the image interval, $\Pi_{\text{lo}}$,
+	is therefore attained at an end of the interval; its largest,
+	$\Pi_{\text{hi}}$, at the midpoint of the band if the interval
+	contains it, and at the nearer end otherwise. The stored factor
+	divides the lower end by the largest divisor and the upper end by the
+	smallest,
 	\begin{equation}
 		\bigl[\,m/\Pi_{\text{hi}},\; M/\Pi_{\text{lo}}\,\bigr].
 		\label{eq:trunc}
 	\end{equation}
-	Every continuous state of the cell then has its true conditional
-	probability between the stored ends: its numerator lies between $m$
-	and $M$, its divisor between $\Pi_{\text{lo}}$ and $\Pi_{\text{hi}}$,
-	hence
+	For every prediction $\mu$ in the image interval,
+	$m \le g(\mu) \le M$ and
+	$\Pi_{\text{lo}} \le \Pi(\mu) \le \Pi_{\text{hi}}$, hence
 	\begin{equation}
 		\frac{m}{\Pi_{\text{hi}}} \;\le\; \frac{g(\mu)}{\Pi(\mu)} \;\le\; \frac{M}{\Pi_{\text{lo}}}.
 		\label{eq:truncsound}
 	\end{equation}
+	
+	//here
 	
 	Every number in the generated model now has a source. A deterministic
 	dimension has no randomness: its whole outcome sits at one point, so

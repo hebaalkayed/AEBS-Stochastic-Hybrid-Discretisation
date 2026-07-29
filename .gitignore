@@ -18,3 +18,9 @@ artifacts/
 *.prism
 *.props
 *.csv
+*.bbl
+*.aux
+*.out
+*.gz
+*.toc
+*.blg
