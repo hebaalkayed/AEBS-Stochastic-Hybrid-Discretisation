@@ -1192,8 +1192,7 @@
 	construction time: it records the noise at every corner of the source
 	cell, requires the values to agree to numerical tolerance, and aborts
 	otherwise.
-	
-	//HERE
+
 	
 	\paragraph{Truncation of the stochastic tail.}
 	The grid covers a bounded interval $[b_{\min}, b_{\max}]$ of the
@@ -1254,102 +1253,215 @@
 		\item $\Pi(\mu)$ is the probability that a landing with prediction
 		$\mu$ lies inside the band $[b_{\min}, b_{\max}]$.
 	\end{itemize}
-	The stored probability of a target cell is then the conditional
-	probability of reaching it given that the landing lies inside the
-	band, the quotient $g(\mu)/\Pi(\mu)$. The quotient must remain valid
-	for every continuous state of the source cell, and the predictions of
-	those states span the image interval, so the divisor is bracketed
-	over the image interval. The function $\Pi$ is largest when the
-	prediction is at the midpoint of the band and decreases on either
-	side. Its smallest value over the image interval, $\Pi_{\text{lo}}$,
-	is therefore attained at an end of the interval; its largest,
-	$\Pi_{\text{hi}}$, at the midpoint of the band if the interval
-	contains it, and at the nearer end otherwise. The stored factor
-	divides the lower end by the largest divisor and the upper end by the
-	smallest,
+	
+	
+	For a single continuous state, the stored probability of a target
+	cell is the conditional probability of reaching it given that the
+	landing lies inside the band. This conditional probability is the
+	quotient of the landing chance by the divisor,
 	\begin{equation}
-		\bigl[\,m/\Pi_{\text{hi}},\; M/\Pi_{\text{lo}}\,\bigr].
+		\frac{g(\mu)}{\Pi(\mu)},
+		\label{eq:quotient}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $g(\mu)$ and $\Pi(\mu)$ are evaluated at the prediction $\mu$
+		of that state.
+	\end{itemize}
+	Every value in the image interval is the prediction of some state of
+	the source cell, and each such value has its own divisor. The stored
+	factor must therefore bracket the quotient over the whole image
+	interval. The divisor is largest for a prediction at the midpoint of the band
+	and shrinks toward the band's ends. Over the image interval, the
+	largest divisor is therefore found at the point of the interval
+	closest to the band midpoint, and the smallest at the end of the
+	interval farthest from it. The lower end of the stored factor is
+	divided by the largest divisor and the upper end by the smallest, so
+	that the lower end can only decrease and the upper end only increase:
+	\begin{equation}
+		\bigl[\,m/\Pi_{\text{hi}},\; M/\Pi_{\text{lo}}\,\bigr],
 		\label{eq:trunc}
 	\end{equation}
-	For every prediction $\mu$ in the image interval,
-	$m \le g(\mu) \le M$ and
-	$\Pi_{\text{lo}} \le \Pi(\mu) \le \Pi_{\text{hi}}$, hence
+	where
+	\begin{itemize}
+		\item $\Pi_{\text{lo}}$ and $\Pi_{\text{hi}}$ are the smallest and
+		largest values of the divisor over the image interval.
+	\end{itemize}
+	
+	The stored ends are safe for every state of the cell. Each state's
+	conditional probability is built from a landing chance no smaller
+	than $m$ and no larger than $M$, and a divisor no smaller than
+	$\Pi_{\text{lo}}$ and no larger than $\Pi_{\text{hi}}$, so it cannot
+	fall below the stored lower end nor exceed the stored upper end:
 	\begin{equation}
-		\frac{m}{\Pi_{\text{hi}}} \;\le\; \frac{g(\mu)}{\Pi(\mu)} \;\le\; \frac{M}{\Pi_{\text{lo}}}.
+		\frac{m}{\Pi_{\text{hi}}} \;\le\; \frac{g(\mu)}{\Pi(\mu)} \;\le\;
+		\frac{M}{\Pi_{\text{lo}}}
+		\qquad \forall \mu \in [\mu_d^{\text{lo}}, \mu_d^{\text{hi}}],
 		\label{eq:truncsound}
 	\end{equation}
+	where
+	\begin{itemize}
+		\item $g(\mu)$ and $\Pi(\mu)$ are the landing chance~\eqref{eq:g}
+		and the divisor~\eqref{eq:inband} at the prediction $\mu$;
+		\item $m$ and $M$ are the ends of the landing-chance
+		bracket~\eqref{eq:mlo}--\eqref{eq:Mhi}, and $\Pi_{\text{lo}}$ and
+		$\Pi_{\text{hi}}$ the smallest and largest divisor over the image
+		interval, as in~\eqref{eq:trunc};
+		\item $[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$ is the image
+		interval~\eqref{eq:imagebox}.
+	\end{itemize}
+		
 	
-	//here
-	
-	Every number in the generated model now has a source. A deterministic
-	dimension has no randomness: its whole outcome sits at one point, so
-	its factor ends are $0$ or $1$, and when that point falls on a shared
-	cell boundary, ownership of the boundary decides the value; hence the
-	strict test in~\eqref{eq:flo}. The stochastic dimension spreads its
-	outcome as a density, and a single point carries none of a density's
-	mass, so boundary ownership changes nothing and the factor is
-	fractional. A transition's interval is the product~\eqref{eq:product}
-	of one factor per dimension, and every fractional entry in the model
-	is the stochastic factor showing through that product
+	The two factor types are visible in the generated model. A
+	deterministic dimension has no randomness, so its factor places the
+	whole outcome at one point. The ends of that factor are therefore
+	$0$ or $1$, and its value can turn on which cell owns a shared
+	boundary. A
+	stochastic dimension spreads its outcome as a density, and a single
+	point carries no mass under a density, so boundary ownership does not
+	affect its factor, and the factor's ends are fractional. A
+	transition's interval is the product~\eqref{eq:product} of one factor
+	per dimension, and every fractional entry in the model is the
+	stochastic factor showing through that product
 	(Figure~\ref{fig:atomvsdensity}).
 	
 	\begin{figure}[h]
 		\centering
 		\begin{tikzpicture}[>=stealth, font=\small]
-			\node[anchor=south] at (2.1,2.9) {stochastic factor: density};
+			\node[anchor=south, align=center] at (2.1,2.9)
+			{stochastic dimension:\\outcome is a density};
 			\draw[gray!60] (0.2,0.5) -- (4.0,0.5);
 			\draw[red!60!black, thick, dashed] (2.1,0.5) -- (2.1,2.7);
-			\node[below, font=\scriptsize] at (2.1,0.45) {cell edge};
+			\node[below, font=\scriptsize] at (2.1,0.45) {shared boundary};
 			\fill[black!12] (0.5,0.55) .. controls (1.3,0.7) and (1.5,2.3) .. (2.1,2.35)
 			-- (2.1,0.5) -- (0.5,0.5) -- cycle;
 			\draw[blue!60!black, thick] (0.5,0.55) .. controls (1.3,0.7) and (1.5,2.3) .. (2.1,2.35)
 			.. controls (2.7,2.3) and (2.9,0.7) .. (3.7,0.55);
-			\node[anchor=north, font=\scriptsize, text width=3.9cm, align=center] at (2.1,-0.05)
-			{probability $=$ area; the edge has zero width, so zero mass:
-				ownership of the boundary does not change the factor};
+			\node[anchor=north, font=\scriptsize] at (2.1,-0.05)
+			{probability is the shaded area};
 			\begin{scope}[shift={(5.6,0)}]
-				\node[anchor=south] at (2.1,2.9) {deterministic factor: point mass};
+				\node[anchor=south, align=center] at (2.1,2.9)
+				{deterministic dimension:\\outcome is a point mass};
 				\draw[gray!60] (0.2,0.5) -- (4.0,0.5);
 				\draw[red!60!black, thick, dashed] (2.1,0.5) -- (2.1,2.7);
-				\node[below, font=\scriptsize] at (2.1,0.45) {cell edge};
+				\node[below, font=\scriptsize] at (2.1,0.45) {shared boundary};
 				\draw[->, very thick] (2.1,0.5) -- (2.1,2.3);
 				\fill (2.1,0.5) circle (2pt);
-				\node[anchor=north, font=\scriptsize, text width=3.9cm, align=center] at (2.1,-0.05)
-				{the whole unit of mass sits on one point; if that point is the
-					edge, ownership decides whether the factor is $1$ or $0$};
+				\node[anchor=north, font=\scriptsize] at (2.1,-0.05)
+				{the whole mass on one point};
 			\end{scope}
 		\end{tikzpicture}
-		\caption{The two factor types of the product kernel. A density factor
-			(left) assigns zero probability to any single point, so which cell
-			owns a shared boundary does not affect its value. A point-mass factor
-			(right) concentrates the whole unit of mass on one point; when the
-			image lands exactly on a shared boundary, the half-open convention of
-			Section~\ref{sec:abs:partition} determines which cell receives the
-			mass, which is why the upper inequality in~\eqref{eq:flo} must be
-			strict.}
+		\caption{The two factor types. In a stochastic dimension (left) the
+			outcome spreads as a density; a single point carries no mass, so
+			which cell owns a shared boundary does not affect the factor. In a
+			deterministic dimension (right) the outcome is a point mass, drawn
+			on the boundary; which cell owns the boundary decides which cell
+			receives the mass, under the half-open convention of
+			Section~\ref{sec:abs:partition}.}
 		\label{fig:atomvsdensity}
 	\end{figure}
-	
-	
-	
-	
-	//here
+			
+
 	\paragraph{Terminal routing.}
-	The terminal representative of Section~\ref{sec:abs:partition} receives the transitions of any source cell whose image reaches the terminal region. When the whole image lies inside the region, the row is the single certain transition $[1,1]$ to the representative. When only part of the image reaches the region, the representative is added as a target with the interval $[0,1]$ alongside the grid targets, and the enumeration of grid targets in the affected dimension is clamped at the terminal boundary, so that no ordinary target is enumerated inside the region. Certain coverage is still tested against the unclamped image, so a grid target straddling the terminal boundary receives the lower bound $0$ automatically.
+	A designated terminal region absorbs the runs that enter it. The
+	routing fills the row of any source cell whose image meets the
+	region, given a membership test that classifies the image as wholly
+	inside, partly inside, or outside the region. When the image is
+	wholly inside, no factors are computed: the row is a single
+	transition to the terminal representative
+	(Section~\ref{sec:abs:partition}), with interval set directly to
+	$[1,1]$. When the image is partly inside, the representative is added
+	as a target beside the grid targets, with interval set directly to
+	$[0,1]$; the grid targets' intervals are computed by the factor
+	construction as before, and no grid target is enumerated inside the
+	region.
 	
+	The provided membership test covers a region bounded in a single
+	deterministic dimension: the region lies beyond a boundary value in
+	that dimension, the \emph{terminal boundary}. The dimension is
+	deterministic, so the image box holds the actual next coordinate of
+	every state of the source cell, and membership is read off the image
+	box alone. Each state then either enters the region or does not, so
+	$[0,1]$ is the exact range for a partly inside image. Grid targets in
+	the bounded dimension are enumerated only up to the terminal
+	boundary. Certain coverage is tested against the whole image, so a
+	grid target straddling the terminal boundary receives the lower bound
+	$0$. A richer region, over several dimensions or with a stochastic
+	threshold, requires a richer membership test; the routing itself is
+	unchanged.
+	
+
 	\paragraph{Escape in the deterministic dimensions.}
-	The image in a deterministic dimension can extend beyond the grid at either end, whenever the dynamics are not floored or capped at the corresponding state-space bound. Because the cells are half-open, an image point exactly on the grid's top edge already lies outside the grid, whereas a point exactly on the bottom edge still belongs to the lowest cell; the top test is therefore inclusive and the bottom test strict. Whenever part of the image leaves the grid, the safe sink is added as a target with the interval $[0,1]$ alongside the enumerated grid targets; when the whole image has left the grid, the row is the single transition $[1,1]$ to the sink. A dimension whose lower boundary abuts the terminal region is excepted: an image reaching that boundary is handled by the terminal routing above, not by the sink. This routing realises the sink's role of collecting mass that leaves the modelled region, and it is required for soundness in the sense of Section~\ref{sec:abs:sound}: a concrete state whose mass leaves the grid must remain representable within the interval row, and a wholly escaped image would otherwise produce an empty row, a state with no outgoing transition, which has no meaning as an IMDP row and is a deadlock in the emitted synchronised PRISM model.
+	The grid models a bounded window of each dimension, and the dynamics
+	are not confined to it. Unless floored or capped at the corresponding
+	state-space bound, the image in a deterministic dimension can extend
+	beyond the grid at either end. A state carried past the edge leaves
+	the modelled window, and the safe sink of
+	Section~\ref{sec:abs:partition} is the outcome that records this.
+	Whether an image point has left the grid follows from the half-open
+	convention of Section~\ref{sec:abs:partition}. The grid's top edge is
+	the excluded upper edge of the last cell, so a point exactly on it
+	lies outside; the grid's bottom edge is the included lower edge of
+	the first cell, so a point exactly on it lies inside. When the whole
+	image has left the grid, no factors are computed, and the row is a
+	single transition to the sink with interval set directly to $[1,1]$.
+	When part of the image leaves the grid, the sink is added as a target
+	beside the enumerated grid targets, with interval set directly to
+	$[0,1]$, the exact range over a cell containing both escaping and
+	non-escaping states. One grid edge is excepted from the sink routing.
+	In the dimension that carries the terminal region, the grid ends at
+	the terminal boundary, and the states beyond that edge lie inside the
+	terminal region rather than outside the model. An image crossing that
+	edge enters the region and is routed to the terminal representative,
+	as the absorbing definition of Section~\ref{sec:abs:partition}
+	prescribes. The sink routing is required for soundness in the sense
+	of Section~\ref{sec:abs:sound}. Mass that leaves the grid must remain
+	representable within its interval row, and a wholly escaped image
+	with no sink target would produce an invalid IMDP.
 	
 	\paragraph{Product over dimensions.}
-	For the product kernel of~\eqref{eq:factorise}, the factor brackets multiply across dimensions: the interval stored for the target cell with per-dimension indices $(k_1, \dots, k_n)$ is
+	The factor brackets are computed per dimension, and a transition
+	needs one interval for the whole step. For the product kernel
+	of~\eqref{eq:kernelfactor}, the step succeeds when every dimension
+	lands in its slice of the target, so the brackets multiply, and the
+	interval stored for the target cell with per-dimension indices
+	$(k_1, \dots, k_n)$ is
 	\begin{equation}
 		p_{\min} = \prod_{d=1}^{n} f^{d}_{\text{lo}}, \qquad
 		p_{\max} = \prod_{d=1}^{n} f^{d}_{\text{hi}},
 		\label{eq:product}
 	\end{equation}
-	where $f^{d}$ denotes the factor interval of dimension $d$ for that target's dimension-$d$ interval. Distinct index combinations address distinct target states, because the flattening of Section~\ref{sec:abs:partition} is a bijection from index tuples to state identifiers, so no two combinations write to the same target. Combinations whose upper product is numerically negligible are dropped, again below the certificate's tolerance. The lower bound is stored as computed, with no artificial floor: a target only possibly reached carries a genuine lower bound of zero.
+	where
+	\begin{itemize}
+		\item $f^{d}_{\text{lo}}$ and $f^{d}_{\text{hi}}$ are the ends of the
+		factor bracket of dimension $d$, evaluated for the target's cell
+		$k_d$ in that dimension;
+		\item $n$ is the number of dimensions.
+	\end{itemize}
+	Each index combination selects one grid cell, and the flattening of
+	Section~\ref{sec:abs:partition} assigns every grid cell a single
+	identifier, so distinct combinations always write to distinct
+	targets. Combinations whose upper product lies below tolerance are
+	discarded; the discarded mass sits below the numerical tolerance of
+	the containment certificate (Section~\ref{sec:abs:sound}). A lower
+	product of $0$ is stored as $0$. For a target only possibly reached,
+	some states of the source cell have true probability $0$, and the
+	stored interval must contain that value.\newline
 	
-	Algorithm~\ref{alg:imagebox} computes the image box together with the noise check of \hyperref[ass:sysclass]{Assumption~(i)}: it evaluates the dynamics at every corner of the source cell and tracks, per dimension, the extent of the next-state mean and the spread of the noise across the corners. The corner coordinates are the cell's stored edge values themselves, the same floating-point numbers that delimit the cells in~\eqref{eq:bins}, rather than values reconstructed from the cell centre and a half-width: the two can differ in the last bits of floating-point arithmetic, and the boundary reasoning of~\eqref{eq:flo} is exact only when the corners are evaluated at exactly the delimiting values. Since the upper edges are among the corner coordinates, the corner set spans the closure of the half-open cell, so the returned image interval bounds the image of every state of the cell, its boundary included.
+	//here
+	Algorithm~\ref{alg:imagebox} computes the image box and performs the
+	noise check of \hyperref[ass:sysclass]{Assumption~(i)}. It evaluates
+	the dynamics at every corner of the source cell and records, per
+	dimension, the smallest and largest next value and the smallest and
+	largest noise across the corners. The corner coordinates are the
+	stored edge values of~\eqref{eq:bins} themselves, not values
+	reconstructed from a cell centre and a half-width. Reconstruction can
+	differ from the stored edges in the last bits of floating-point
+	arithmetic, and the boundary reasoning of~\eqref{eq:flo} is exact
+	only when the corners are evaluated at the delimiting values. The
+	upper edges are among the corner coordinates, so the corner set spans
+	the closure of the half-open cell, and the returned image interval
+	bounds the image of every state of the cell, boundary included.
 	
 	\begin{algorithm}[H]
 		\caption{$\textsc{ImageBox}$: exact corner enumeration of the deterministic image, with the noise state-independence check.}
@@ -1366,20 +1478,22 @@
 			\EndFor
 			\EndFor
 			\For{each dimension $d$}
-			\If{$\sigma^{\text{hi}}_d - \sigma^{\text{lo}}_d > 10^{-12}$} \textbf{raise} (noise not constant across the cell; single-$\sigma$ kernel unsound) \EndIf
+			\If{$\sigma^{\text{hi}}_d - \sigma^{\text{lo}}_d > 10^{-12}$} \textbf{raise} (noise not constant across the cell) \EndIf
 			\EndFor
 			\State \Return $[\mu^{\text{lo}}, \mu^{\text{hi}}]$ and the common noise $\sigma = \sigma^{\text{lo}}$
 		\end{algorithmic}
 	\end{algorithm}
 	
-	Algorithm~\ref{alg:boxprob} returns the extrema~\eqref{eq:Mm} of the box probability over the image, the per-transition range bound of~\cite[Eq.~3.11]{Soudjani2013}.
+	Algorithm~\ref{alg:boxprob} returns the
+	extrema~\eqref{eq:mlo}--\eqref{eq:Mhi} of the landing chance over the
+	image interval.
 	
 	\begin{algorithm}[H]
-		\caption{$\textsc{BoxProbRange}$: range of the box probability over the image (adapting~\cite[Eq.~3.11]{Soudjani2013}).}
+		\caption{$\textsc{BoxProbRange}$: range of the landing chance over the image interval (adapting~\cite[Eq.~3.11]{Soudjani2013}).}
 		\label{alg:boxprob}
 		\begin{algorithmic}[1]
-			\Require image $[\mu^{\text{lo}}, \mu^{\text{hi}}]$, target bounds $\ell^j, h^j$, noise $\sigma$
-			\Ensure $(m, M)$, the min and max of $g(\mu)$ over $[\mu^{\text{lo}}, \mu^{\text{hi}}]$
+			\Require image interval $[\mu^{\text{lo}}, \mu^{\text{hi}}]$, target window $\ell^j, h^j$, noise $\sigma$
+			\Ensure $(m, M)$, the smallest and largest value of $g$ over the image interval
 			\If{$\sigma \le 0$} \Return $(0, 0)$ \EndIf
 			\State $g(\mu) := \Phi((h^j - \mu)/\sigma) - \Phi((\ell^j - \mu)/\sigma)$;\quad $\mu^\star \gets (\ell^j + h^j)/2$
 			\If{$\mu^{\text{lo}} \le \mu^\star \le \mu^{\text{hi}}$} $M \gets g(\mu^\star)$ \Else\ $M \gets \max\{g(\mu^{\text{lo}}),\, g(\mu^{\text{hi}})\}$ \EndIf
@@ -1388,7 +1502,13 @@
 		\end{algorithmic}
 	\end{algorithm}
 	
-	Algorithm~\ref{alg:intervals} assembles one row of the IMDP: it builds the image box, applies the terminal routing and the escape routing, computes the per-dimension factor brackets (stochastic factors via Algorithm~\ref{alg:boxprob} with truncation, deterministic factors via~\eqref{eq:flo}), and forms the transition intervals as the product~\eqref{eq:product} over all factor combinations.
+	Algorithm~\ref{alg:intervals} assembles one row of the IMDP. It
+	builds the image box, applies the terminal routing and the escape
+	routing, and computes the factor bracket of every dimension.
+	Stochastic factors come from Algorithm~\ref{alg:boxprob} with the
+	truncation division~\eqref{eq:trunc}; deterministic factors
+	from~\eqref{eq:flo}. The brackets multiply into the transition
+	intervals~\eqref{eq:product}.
 	
 	\begin{algorithm}[H]
 		\caption{Per-cell, per-action transition intervals. Produces one IMDP row.}
@@ -1398,29 +1518,24 @@
 			\Ensure interval map $\mathcal{T} : \text{target id} \to [p_{\min}, p_{\max}]$
 			\State $([\mu^{\text{lo}}, \mu^{\text{hi}}], \sigma) \gets \textsc{ImageBox}(\mathrm{lo}, \mathrm{hi}, a)$ \Comment{Algorithm~\ref{alg:imagebox}}
 			\If{the image lies wholly inside the terminal region} \Return $\{\text{term} : (1, 1)\}$ \EndIf
-			\State $\textit{terminalPossible} \gets$ image touches the terminal region
+			\State $\textit{terminalPossible} \gets$ image partly inside the terminal region
 			\If{the image lies wholly outside the grid in a deterministic dimension} \Return $\{\text{sink} : (1, 1)\}$ \EndIf
-			\State $\textit{escapePossible} \gets$ image reaches the grid's upper boundary, or crosses below its lower boundary, in a deterministic dimension (the terminal-region wall excepted, handled above)
-			\State $\Pi_{\text{lo}}, \Pi_{\text{hi}} \gets$ extrema of the in-grid mass~\eqref{eq:trunc} over the image (endpoints for both; additionally the band midpoint for $\Pi_{\text{hi}}$ when the image straddles it) \Comment{truncation constants}
+			\State $\textit{escapePossible} \gets$ image reaches the grid's top edge, or crosses below its bottom edge, in a deterministic dimension (terminal edge excepted)
+			\State $\Pi_{\text{lo}}, \Pi_{\text{hi}} \gets$ extrema of~\eqref{eq:inband} over the image interval (interval ends; band midpoint for $\Pi_{\text{hi}}$ when the interval contains it)
 			\For{each dimension $d$}
 			\If{$\sigma_d > 0$} \Comment{stochastic dimension}
-			\State enumerate cells $k$ within $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d] \pm 6\sigma_d$
-			\State for each $k$: $(m, M) \gets \textsc{BoxProbRange}(\mu^{\text{lo}}_d, \mu^{\text{hi}}_d, \text{bin}^k_{\text{lo}}, \text{bin}^k_{\text{hi}}, \sigma_d)$; renormalise by $(\Pi_{\text{hi}}, \Pi_{\text{lo}})$; keep if $M$ non-negligible
-			\Else \Comment{deterministic dimension; enumeration clamped at the terminal boundary}
-			\State enumerate cells $k$ the image $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d]$ touches; for each $k$: $f_{\text{lo}} \gets 1$ if the image lies wholly inside the half-open cell $k$ else $0$; factor $(k, f_{\text{lo}}, 1)$
+			\State enumerate cells $k$ within $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d]$ extended by $n_{\mathrm{cut}}\sigma_d$
+			\State per $k$: $(m, M) \gets \textsc{BoxProbRange}(\mu^{\text{lo}}_d, \mu^{\text{hi}}_d, \text{bin}^k_{\text{lo}}, \text{bin}^k_{\text{hi}}, \sigma_d)$; divide as in~\eqref{eq:trunc}; discard if $M$ below tolerance
+			\Else \Comment{deterministic dimension; enumeration ends at the terminal boundary}
+			\State enumerate cells $k$ the image touches; per $k$: $f_{\text{lo}} \gets 1$ if the image lies wholly inside the half-open cell $k$, else $0$; factor $(k, f_{\text{lo}}, 1)$
 			\EndIf
 			\EndFor
-			\State $\mathcal{T} \gets \{\,\text{flat}(k_1, \dots, k_n) : (\textstyle\prod_d f^d_{\text{lo}},\ \prod_d f^d_{\text{hi}})\,\}$ over all factor combinations, negligible products dropped
+			\State $\mathcal{T} \gets \{\,\text{flat}(k_1, \dots, k_n) : (\textstyle\prod_d f^d_{\text{lo}},\ \prod_d f^d_{\text{hi}})\,\}$ over all factor combinations, products below tolerance dropped
 			\If{\textit{terminalPossible}} $\mathcal{T}[\text{term}] \gets (0, 1)$ \EndIf
 			\If{\textit{escapePossible}} $\mathcal{T}[\text{sink}] \gets (0, 1)$ \EndIf
 			\State \Return $\mathcal{T}$
 		\end{algorithmic}
 	\end{algorithm}
-	
-	
-	
-	
-	
 	
 	
 	
@@ -1553,6 +1668,8 @@
 		\item \emph{Stochastic non-degeneracy.} On a stochastic dimension the ratio $\sigma_d / r_d$ must remain of order one or above, or the range factor~\eqref{eq:Mm} degenerates. The reported configurations use $\sigmav / r_{\vlead} \approx 2.0$.
 		\item \emph{Cell budget.} The cell count $M = \prod_d (\text{range}_d / r_d)$ is capped by generation memory and disk staging, approximately $2 \times 10^6$ cells on the reported infrastructure. A finer resolution is therefore afforded by shrinking the window; Section~\ref{sec:cs:extrafine} instantiates the trade.
 	\end{enumerate}
+	
+	
 	\section{Case Study: An Autonomous Emergency Braking System}
 	\label{sec:cs}
 	
