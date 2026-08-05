@@ -72,6 +72,9 @@
 	showstringspaces=false,
 }
 
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+
 \title{A Sound Interval-MDP Abstraction of an Autonomous Emergency Braking System\\
 	\large Construction, Soundness Certificate, and PRISM Encoding}
 \author{Heba Al Kayed\\School of Informatics, University of Edinburgh} % TODO: fill in before sharing
@@ -1448,147 +1451,175 @@
 	some states of the source cell have true probability $0$, and the
 	stored interval must contain that value.\newline
 	
-	//here
-	Algorithm~\ref{alg:imagebox} computes the image box and performs the
-	noise check of \hyperref[ass:sysclass]{Assumption~(i)}. It evaluates
-	the dynamics at every corner of the source cell and records, per
-	dimension, the smallest and largest next value and the smallest and
-	largest noise across the corners. The corner coordinates are the
-	stored edge values of~\eqref{eq:bins} themselves, not values
-	reconstructed from a cell centre and a half-width. Reconstruction can
-	differ from the stored edges in the last bits of floating-point
-	arithmetic, and the boundary reasoning of~\eqref{eq:flo} is exact
-	only when the corners are evaluated at the delimiting values. The
-	upper edges are among the corner coordinates, so the corner set spans
-	the closure of the half-open cell, and the returned image interval
-	bounds the image of every state of the cell, boundary included.
+
+	Three procedures carry out the row construction. The first evaluates
+	the corners of a source cell and returns the image
+	box~\eqref{eq:imagebox}. The second brackets the landing
+	chance~\eqref{eq:g} of a single target window over the image
+	interval, returning the ends~\eqref{eq:mlo}--\eqref{eq:Mhi}. The
+	third calls both and assembles a full row of the IMDP, the transition
+	intervals of the product~\eqref{eq:product}. \newline
+	
+	Algorithm~\ref{alg:imagebox} implements the corner
+	evaluation~\eqref{eq:imagebox} and checks the noise
+	state-independence required by
+	\hyperref[ass:sysclass]{Assumption~(i)}. The strict test
+	of~\eqref{eq:flo} is exact only at the delimiting edge values, so the
+	corners are evaluated at the stored edges of~\eqref{eq:bins}.
 	
 	\begin{algorithm}[H]
-		\caption{$\textsc{ImageBox}$: exact corner enumeration of the deterministic image, with the noise state-independence check.}
+		\caption{$\textsc{ImageBox}$: corner evaluation of the image box, with the noise check.}
 		\label{alg:imagebox}
 		\begin{algorithmic}[1]
-			\Require source-cell edges $[\mathrm{lo}_d, \mathrm{hi}_d)$ for each dimension $d$ (the exact stored values of~\eqref{eq:bins}), action $a$
-			\Ensure image interval $[\mu^{\text{lo}}, \mu^{\text{hi}}]$ per dimension and per-cell noise $\sigma$
-			\State $\mu^{\text{lo}}_d \gets +\infty$, $\mu^{\text{hi}}_d \gets -\infty$;\quad $\sigma^{\text{lo}}_d \gets +\infty$, $\sigma^{\text{hi}}_d \gets -\infty$ for all $d$
-			\ForAll{corners $(x_1, \dots, x_n)$ with $x_d \in \{\mathrm{lo}_d, \mathrm{hi}_d\}$ (all $2^n$ combinations of exact cell edges)}
-			\State $(\mu, \sigma') \gets$ deterministic next state and noise at the corner under $a$
-			\For{each dimension $d$}
-			\State $\mu^{\text{lo}}_d \gets \min(\mu^{\text{lo}}_d, \mu_d)$;\quad $\mu^{\text{hi}}_d \gets \max(\mu^{\text{hi}}_d, \mu_d)$
-			\State $\sigma^{\text{lo}}_d \gets \min(\sigma^{\text{lo}}_d, \sigma'_d)$;\quad $\sigma^{\text{hi}}_d \gets \max(\sigma^{\text{hi}}_d, \sigma'_d)$
+			\Require the stored edges~\eqref{eq:bins} of the source cell; action $a$
+			\Ensure image interval $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d]$ and noise $\sigma_d$ per dimension $d$
+			\State evaluate the next state and the noise at every corner of the cell, every combination of the stored edges, under $a$
+			\ForAll{dimensions $d$}
+			\State $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d] \gets$ smallest and largest next value over the corners
+			\If{the noise differs across the corners beyond tolerance} \textbf{raise} (noise not state-independent) \EndIf
+			\State $\sigma_d \gets$ the common noise
 			\EndFor
-			\EndFor
-			\For{each dimension $d$}
-			\If{$\sigma^{\text{hi}}_d - \sigma^{\text{lo}}_d > 10^{-12}$} \textbf{raise} (noise not constant across the cell) \EndIf
-			\EndFor
-			\State \Return $[\mu^{\text{lo}}, \mu^{\text{hi}}]$ and the common noise $\sigma = \sigma^{\text{lo}}$
+			\State \Return the intervals and the noise
 		\end{algorithmic}
 	\end{algorithm}
 	
-	Algorithm~\ref{alg:boxprob} returns the
-	extrema~\eqref{eq:mlo}--\eqref{eq:Mhi} of the landing chance over the
-	image interval.
+
+	Algorithm~\ref{alg:boxprob} returns the smallest and largest
+	landing chance over the image interval, the ends
+	of~\eqref{eq:mlo} and~\eqref{eq:Mhi}. It applies to the
+	stochastic dimensions only.
 	
 	\begin{algorithm}[H]
-		\caption{$\textsc{BoxProbRange}$: range of the landing chance over the image interval (adapting~\cite[Eq.~3.11]{Soudjani2013}).}
+		\caption{$\textsc{BoxProbRange}$: the range of the landing chance over the image interval.}
 		\label{alg:boxprob}
 		\begin{algorithmic}[1]
-			\Require image interval $[\mu^{\text{lo}}, \mu^{\text{hi}}]$, target window $\ell^j, h^j$, noise $\sigma$
-			\Ensure $(m, M)$, the smallest and largest value of $g$ over the image interval
-			\If{$\sigma \le 0$} \Return $(0, 0)$ \EndIf
-			\State $g(\mu) := \Phi((h^j - \mu)/\sigma) - \Phi((\ell^j - \mu)/\sigma)$;\quad $\mu^\star \gets (\ell^j + h^j)/2$
-			\If{$\mu^{\text{lo}} \le \mu^\star \le \mu^{\text{hi}}$} $M \gets g(\mu^\star)$ \Else\ $M \gets \max\{g(\mu^{\text{lo}}),\, g(\mu^{\text{hi}})\}$ \EndIf
-			\State $m \gets \min\{g(\mu^{\text{lo}}),\, g(\mu^{\text{hi}})\}$
+			\Require the image interval $[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$ of~\eqref{eq:imagebox}; the target window $[\ell^j_d, h^j_d)$ of the candidate cell; the noise level $\sigma_d > 0$
+			\Ensure $(m, M)$, the smallest and largest landing chance over the image interval
+			\State evaluate the landing chance~\eqref{eq:g} at both ends of the image interval
+			\State $m \gets$ the smaller of the two values, as in~\eqref{eq:mlo}
+			\State $M \gets$ the landing chance at the attainable prediction closest to the cell middle, as in~\eqref{eq:Mhi}
 			\State \Return $(m, M)$
 		\end{algorithmic}
 	\end{algorithm}
-	
-	Algorithm~\ref{alg:intervals} assembles one row of the IMDP. It
-	builds the image box, applies the terminal routing and the escape
-	routing, and computes the factor bracket of every dimension.
-	Stochastic factors come from Algorithm~\ref{alg:boxprob} with the
-	truncation division~\eqref{eq:trunc}; deterministic factors
-	from~\eqref{eq:flo}. The brackets multiply into the transition
-	intervals~\eqref{eq:product}.
+
+
+	Algorithm~\ref{alg:intervals} assembles one row of the IMDP from
+	the terminal and escape routing, the factor brackets
+	of~\eqref{eq:flo} and~\eqref{eq:trunc}, and the
+	product~\eqref{eq:product}.
 	
 	\begin{algorithm}[H]
-		\caption{Per-cell, per-action transition intervals. Produces one IMDP row.}
+		\caption{$\textsc{RowIntervals}$: the transition intervals of one source cell under one action.}
 		\label{alg:intervals}
 		\begin{algorithmic}[1]
-			\Require source-cell edges $[\mathrm{lo}_d, \mathrm{hi}_d)$ per dimension, action $a$, grid bins and shape
-			\Ensure interval map $\mathcal{T} : \text{target id} \to [p_{\min}, p_{\max}]$
-			\State $([\mu^{\text{lo}}, \mu^{\text{hi}}], \sigma) \gets \textsc{ImageBox}(\mathrm{lo}, \mathrm{hi}, a)$ \Comment{Algorithm~\ref{alg:imagebox}}
-			\If{the image lies wholly inside the terminal region} \Return $\{\text{term} : (1, 1)\}$ \EndIf
-			\State $\textit{terminalPossible} \gets$ image partly inside the terminal region
-			\If{the image lies wholly outside the grid in a deterministic dimension} \Return $\{\text{sink} : (1, 1)\}$ \EndIf
-			\State $\textit{escapePossible} \gets$ image reaches the grid's top edge, or crosses below its bottom edge, in a deterministic dimension (terminal edge excepted)
-			\State $\Pi_{\text{lo}}, \Pi_{\text{hi}} \gets$ extrema of~\eqref{eq:inband} over the image interval (interval ends; band midpoint for $\Pi_{\text{hi}}$ when the interval contains it)
-			\For{each dimension $d$}
-			\If{$\sigma_d > 0$} \Comment{stochastic dimension}
-			\State enumerate cells $k$ within $[\mu^{\text{lo}}_d, \mu^{\text{hi}}_d]$ extended by $n_{\mathrm{cut}}\sigma_d$
-			\State per $k$: $(m, M) \gets \textsc{BoxProbRange}(\mu^{\text{lo}}_d, \mu^{\text{hi}}_d, \text{bin}^k_{\text{lo}}, \text{bin}^k_{\text{hi}}, \sigma_d)$; divide as in~\eqref{eq:trunc}; discard if $M$ below tolerance
-			\Else \Comment{deterministic dimension; enumeration ends at the terminal boundary}
-			\State enumerate cells $k$ the image touches; per $k$: $f_{\text{lo}} \gets 1$ if the image lies wholly inside the half-open cell $k$, else $0$; factor $(k, f_{\text{lo}}, 1)$
-			\EndIf
+			\Require the stored edges~\eqref{eq:bins} of the source cell; action $a$; the grid and terminal region of Section~\ref{sec:abs:partition}
+			\Ensure one row of the IMDP, an interval~\eqref{eq:cellcontain} per reachable target
+			\State $[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$ and $\sigma_d$, per dimension $d$ $\gets \textsc{ImageBox}$ (Algorithm~\ref{alg:imagebox})
+			\If{image wholly inside the terminal region} \Return terminal representative, $[1,1]$ \EndIf
+			\If{image wholly outside the grid in a deterministic dimension} \Return sink, $[1,1]$ \EndIf
+			\ForAll{stochastic dimensions $d$ ($\sigma_d > 0$)}
+			\State $\Pi_{\text{lo}}, \Pi_{\text{hi}} \gets$ smallest and largest divisor~\eqref{eq:inband} over $[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$
+			\State candidate targets $\gets$ cells beneath $[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$ extended by the noise reach $n_{\mathrm{cut}}\sigma_d$
+			\ForAll{candidate targets $k$}
+			\State $(m, M) \gets \textsc{BoxProbRange}$ on the window of $k$ (Algorithm~\ref{alg:boxprob})
+			\State $[f^d_{\text{lo}},\, f^d_{\text{hi}}]$ of $k$ $\gets$ the truncated bracket~\eqref{eq:trunc}
 			\EndFor
-			\State $\mathcal{T} \gets \{\,\text{flat}(k_1, \dots, k_n) : (\textstyle\prod_d f^d_{\text{lo}},\ \prod_d f^d_{\text{hi}})\,\}$ over all factor combinations, products below tolerance dropped
-			\If{\textit{terminalPossible}} $\mathcal{T}[\text{term}] \gets (0, 1)$ \EndIf
-			\If{\textit{escapePossible}} $\mathcal{T}[\text{sink}] \gets (0, 1)$ \EndIf
-			\State \Return $\mathcal{T}$
+			\EndFor
+			\ForAll{deterministic dimensions $d$ ($\sigma_d = 0$)}
+			\ForAll{cells $k$ the image crosses or touches, up to the terminal boundary}
+			\State $[f^d_{\text{lo}},\, f^d_{\text{hi}}]$ of $k$ $\gets [f_{\text{lo}},\, 1]$ of~\eqref{eq:flo}
+			\EndFor
+			\EndFor
+			\State row $\gets$ one transition per factor combination, interval the product~\eqref{eq:product}; drop combinations below tolerance
+			\If{image partly inside the terminal region} add terminal representative, $[0,1]$ \EndIf
+			\If{image partly outside the grid in a deterministic dimension, terminal edge excepted} add sink, $[0,1]$ \EndIf
+			\State \Return the row
 		\end{algorithmic}
 	\end{algorithm}
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
 	
 	\subsection{Soundness of the abstraction}
 	\label{sec:abs:sound}
 	
-	The IMDP produced by Sections~\ref{sec:abs:partition} and~\ref{sec:abs:intervals} is intended to be verified in place of the continuous-state system. Two soundness questions arise, and they decouple. First, given the IMDP intervals, do the satisfaction probabilities computed on the IMDP correctly bracket the property value \emph{of the IMDP}? Second, does the property value of the IMDP bracket the satisfaction probability on the underlying continuous system? The first is answered by the semantics of IMDP verification; the second by per-transition containment together with the preservation result of Section~\ref{sec:bg:robust}.
+	The IMDP stands in for the continuous system at verification time,
+	and the stand-in is sound when every answer computed on it covers
+	the continuous system. The preservation result
+	of~\cite{DAK12} (Section~\ref{sec:bg:robust}) reduces this to one
+	hypothesis on the construction: the per-transition
+	containment~\eqref{eq:cellcontain}, that every stored interval
+	contains the true transition probability of every continuous
+	state of its source cell. This subsection establishes the
+	hypothesis twice over, by the design of the construction and by a
+	test that recomputes the true probabilities from the system
+	itself.
 	
-	\paragraph{Layer 1: robust verification is sound for the IMDP.}
-	Given an IMDP whose every transition carries an interval $[p_{\min}, p_{\max}]$, a model checker such as Storm computes the worst-case ($P_{\max}$) and best-case ($P_{\min}$) value of the property over \emph{all} transition distributions consistent with the stored intervals. This is a robust optimisation, not a point estimate, and the output $[P_{\min}^{\text{Storm}}, P_{\max}^{\text{Storm}}]$ brackets the property value of the IMDP unconditionally, independently of grid resolution, of the noise model, and of how wide the per-transition intervals happen to be. Wide intervals yield wider brackets, not unsound ones.
-	
-	\paragraph{Layer 2: per-transition containment transfers the result to the continuous system.}
-	The connection from the IMDP to the continuous system is the containment hypothesis of Section~\ref{sec:bg:robust}. Concretely, for every source cell $A_i$, action $a$, and target cell $A_j$ we require
-	\begin{equation}
-		T_x(A_j \mid s, a) \;\in\; \bigl[\,\check P(i, a, j),\; \hat P(i, a, j)\,\bigr] \qquad \text{for every } s \in A_i.
-		\label{eq:containment}
-	\end{equation}
-	The intervals of Section~\ref{sec:abs:intervals} are constructed so that~\eqref{eq:containment} holds by design: the deterministic factors are exact with respect to the image box under the half-open cell convention, and the stochastic factor conservatively brackets the renormalised box probability over the image, by~\eqref{eq:truncsound}. When~\eqref{eq:containment} holds, every concrete one-step transition law is a selection of the Markov set-chain that the IMDP denotes, so by~\cite{DAK12} the robust value computed on the IMDP brackets the continuous-system value, $p_{\text{cont}}(s_0) \in [P_{\min}^{\text{Storm}}, P_{\max}^{\text{Storm}}]$. No additive error constant is required; the looseness of the abstraction is absorbed entirely into the width of the bracket.
+	\paragraph{Containment by design.}
+	The corner evaluation~\eqref{eq:imagebox} returns the exact range
+	of the mean map over the source cell, so the image box encloses
+	the image of every continuous state of the cell. The
+	deterministic factor~\eqref{eq:flo} is exact with respect to the
+	image box under the half-open convention, the stochastic factor
+	brackets the truncated landing chance over the whole image
+	interval~\eqref{eq:truncsound}, and the product~\eqref{eq:product}
+	of the factor brackets encloses the factorised
+	kernel~\eqref{eq:kernelfactor}. Every stored interval therefore
+	satisfies~\eqref{eq:cellcontain}. Under this containment, every
+	one-step law of the continuous system is a selection of the
+	Markov set-chain that the IMDP denotes, and the verified bracket
+	$[P_{\min}, P_{\max}]$ of Section~\ref{sec:bg:robust} covers the
+	property value of the continuous system~\cite{DAK12}.
 	
 	\paragraph{The containment certificate.}
-	Because~\eqref{eq:containment} is the sole soundness hypothesis, we verify it directly and exhaustively rather than relying on an analytic bound. The containment test samples states spanning every source cell, for every action, respecting the half-open convention of Section~\ref{sec:abs:partition}: in each dimension the lowest sample sits exactly on the cell's lower edge, which the cell owns, and the highest sits at the largest floating-point value strictly below the upper edge, which it does not. At each sampled state it computes the true one-step transition probabilities to every reachable target cell (deterministic dimensions exactly, the stochastic dimension as the truncated and renormalised Gaussian, matching the modelling kernel) and checks that each lies within the stored interval to a fixed numerical tolerance, recording the excess of any violation. Running this test across the whole grid is the soundness certificate for a given configuration; the quantitative outcome on the production grid is reported in Section~\ref{sec:cs:exp}.
+	The certificate compares the abstraction against the system it
+	abstracts, by two independent computations. On one side stands
+	the stored interval, the $[p_{\min}, p_{\max}]$
+	of~\eqref{eq:cellcontain} that the construction computed from the
+	corners of a source cell. On the other stands the true transition
+	probability at a single continuous state: the deterministic
+	coordinates advanced by the system's own dynamics
+	of \hyperref[ass:sysclass]{Assumption~(i)}, evaluated at that one
+	state, and the stochastic coordinates integrated as the truncated
+	Gaussian of~\eqref{eq:trunc}. The true side uses no cell, no
+	corner, and no interval of the construction; the two sides share
+	only the definitions both must speak, the boundary convention and
+	the noise truncation.
+	
+	A cell holds uncountably many continuous states, so the true side
+	is evaluated at a finite sample of them and the design argument
+	above covers the rest. The samples are evenly spaced values in
+	each dimension, from the cell's lower edge to its upper edge,
+	combined across dimensions: $s$ values per dimension give $s^n$
+	sampled states per cell, and the certified instantiation uses
+	three per dimension, twenty-seven states per cell. The placement
+	respects the half-open convention of
+	Section~\ref{sec:abs:partition}. The lowest value lies exactly on
+	the lower edge, which the cell owns; the upper edge does not
+	belong to the cell, so the highest value is the largest
+	floating-point coordinate below it. At each sampled state the
+	test computes the true probability of every reachable target and
+	checks it against the stored interval to a fixed numerical
+	tolerance, recording the excess of any violation. The check runs
+	for every source cell, every action, and every reachable target
+	of the grid. Four further checks run per row. A stored lower
+	bound above tolerance must be met at every sampled state,
+	including a state whose one-step law does not reach the target. A
+	row must contain at least one transition. The row's interval ends
+	must admit a probability distribution, the upper ends summing to
+	at least one and the lower ends to at most one. A sampled state
+	whose image in a deterministic dimension has left the grid must
+	find the sink transition in the stored row. A run of the test
+	over the whole grid is the certificate of one configuration.
 	
 	\begin{notebox}[title=Scope of the soundness claim]
-		Containment is established relative to the \emph{modelling} kernel, the factorised kernel of Section~\ref{sec:abs:intervals}. Any cross-dimension correlation discarded in forming that kernel (for the case study, the gap-noise correlation of Section~\ref{sec:cs:sys}) is deliberately discarded as part of the model. The abstraction is therefore a sound over-approximation of the modelled stochastic system; it is not a claim about a fully-correlated physical kernel that the model does not represent.
+		The claim covers the modelled system, not the raw physics.
+		Any cross-dimension correlation the raw physics carries is
+		removed in adopting the factorised
+		kernel~\eqref{eq:kernelfactor}, and the removal is a
+		modelling choice made before the abstraction begins. Both
+		sides of the certificate apply this choice, so the
+		certificate relates the IMDP to the system as modelled.
 	\end{notebox}
 	
-	\paragraph{The additive bound is a diagnostic only.}
-	For comparison with~\cite{Soudjani2013} we also compute the additive global error bound. Define the per-row half-width sum and the additive bound
-	\begin{equation}
-		K(i, a) \;=\; \sum_j \tfrac{1}{2}\bigl(\hat P(i,a,j) - \check P(i,a,j)\bigr), \qquad E \;=\; N \cdot \max_{i, a} K(i, a),
-		\label{eq:Edef}
-	\end{equation}
-	with $N$ the verification horizon; the pipeline reports $E$ at $N = 10$, a fixed reporting convention independent of the verification horizon used in Section~\ref{sec:cs:exp}. This quantity is reported only as a description of the abstraction's interval widths. It is \emph{not} the soundness mechanism, and it is structurally uninformative for this system: the only stochastic dimension carries constant noise, so $K$ is essentially spatially uniform, the additive bound concentrates nowhere that adaptive refinement could target, and on the production grid $E$ exceeds $1$ at the practically interesting horizons. The soundness of the abstraction does not depend on $E$ being small; that is the role of the containment certificate, which holds regardless of the value of $E$. Algorithm~\ref{alg:globalE} computes $E$ from the assembled IMDP.
-	
-	\begin{algorithm}[H]
-		\caption{$\textsc{GlobalErrorDiagnostic}$: descriptive interval-width summary; not the soundness certificate.}
-		\label{alg:globalE}
-		\begin{algorithmic}[1]
-			\Require IMDP $\mathcal{I}$ with intervals, horizon $N$
-			\State for each $(i, a)$, set $K(i, a) \gets \sum_j \tfrac{1}{2}(\hat P(i,a,j) - \check P(i,a,j))$
-			\State $(i^\star, a^\star) \gets \arg\max_{i,a} K(i, a)$;\quad $E \gets N \cdot K(i^\star, a^\star)$
-			\State \Return $(E, i^\star, a^\star)$
-		\end{algorithmic}
-	\end{algorithm}
-	
+	//here
 	\subsection{The full pipeline}
 	\label{sec:abs:full}
 	
