@@ -530,62 +530,78 @@
 	cell is recorded alongside it. The centre plays no role in the
 	transition construction of Section~\ref{sec:abs:intervals}, which
 	bounds the dynamics over every continuous state of a cell rather than
-	at any single representative point; it is used where the pipeline
-	quantises the controller and the state labelling
-	(Section~\ref{sec:abs:full}).
+	at any single representative point; it is the evaluation point of the
+	\hyperref[par:labelling]{state labelling}.\newline
 	
-	The construction also records a \emph{partition fingerprint}, a hash
-	of the exact edge values of every dimension; two runs operate on the
-	same partition exactly when their fingerprints match.
+	\phantomsection\label{par:labelling}%
+	The questions later posed to the model concern regions of the
+	state space, and a \emph{label} is a name attached to states so
+	that such a region becomes addressable. A label is defined by a
+	\emph{predicate}, a yes-or-no condition on the continuous state.
+	The predicate may involve any dimensions and any quantity computed
+	from them, and a state may carry several labels at once. A state
+	receives a label exactly when the label's predicate holds at the
+	centre of the state's cell. A cell that contains continuous states
+	on both sides of a predicate's boundary is therefore labelled by
+	its centre's answer throughout its extent, so what the labels
+	describe is the predicate as quantised on the grid; refining the
+	grid shrinks the cells on which the two disagree.\newline
 	
 	The model contains \emph{absorbing} states of two kinds. A state is
 	absorbing when, under every action, its only transition is the
 	certain self-loop $[1,1]$ to itself: a run that enters an absorbing
 	state remains there. The first kind handles a designated
-	\emph{terminal region} of $\mathcal{S}$: a region in which the
-	property under study is already decided, so the dynamics need not be
-	tracked further. One grid cell inside the region is designated its
-	representative and made absorbing, and the interval construction of
-	Section~\ref{sec:abs:intervals} routes to the representative every
-	transition whose reachable set meets the region; a terminal region
-	therefore introduces no state beyond the $M$ grid cells. The
-	construction designates a single terminal region, as the case study
-	of Section~\ref{sec:cs} has one outcome decided at entry; further
-	such regions would be handled identically, each through its own
-	absorbing representative and label. The second kind is the
-	\emph{safe sink}, one additional state appended after the $M$ grid
-	cells. The dynamics are not confined to the modelled window
-	$\mathcal{S}$, and the sink receives the probability mass of
+	\emph{terminal region} of $\mathcal{S}$: the region of a label whose
+	outcome is decided at entry, meaning the property under study is
+	settled the moment a run first satisfies the label's predicate, so
+	the dynamics need not be tracked further. One grid cell inside the
+	region is designated its representative and made absorbing, and the
+	interval construction of Section~\ref{sec:abs:intervals} routes to
+	the representative every transition whose reachable set meets the
+	region; a terminal region therefore introduces no state beyond the
+	$M$ grid cells. The construction designates a single terminal
+	region, as the case study of Section~\ref{sec:cs} has one outcome
+	decided at entry; further such regions would be handled identically,
+	each through its own absorbing representative and label. The second
+	kind is the \emph{safe sink}, one additional state appended after
+	the $M$ grid cells. The dynamics are not confined to the modelled
+	window $\mathcal{S}$, and the sink receives the probability mass of
 	transitions that leave the grid. The kinds carry distinct labels for
-	the verifier: mass absorbed at a terminal representative bears on the
-	property being checked, whereas mass in the sink records departure
-	from the modelled window, and separate labels keep the contributions
-	separately quantifiable. \newline
+	the verifier: mass absorbed at a terminal representative bears on
+	the property being checked, whereas mass in the sink records
+	departure from the modelled window, and separate labels keep the
+	contributions separately quantifiable. \newline
+	
+	The construction also records a \emph{partition fingerprint}, a hash
+	of the exact edge values of every dimension; two runs operate on the
+	same partition exactly when their fingerprints match.
 	
 	Algorithm~\ref{alg:grid} records this partitioning step: it lays down
 	the cell edges of~\eqref{eq:bins} in each dimension, enumerates the
-	Cartesian product of cell indices in row-major order, designates the
-	terminal-region representative, and appends the safe sink.
+	Cartesian product of cell indices in row-major order, attaches the
+	labels at cell centres, designates the terminal-region
+	representative, and appends the safe sink.
 	
 	\begin{algorithm}[H]
 		\caption{Grid construction.}
 		\label{alg:grid}
 		\begin{algorithmic}[1]
-			\Require bounds $(\ell_d, h_d)$ and resolution $r_d$ per dimension;
-			terminal region
+			\Require bounds $(\ell_d, h_d)$ and resolution $r_d$ per
+			dimension; labelling predicates; terminal region
 			\Ensure partition $\{A_i\}_{i=1}^M$, identifiers, centres,
-			fingerprint, designated absorbing states
+			fingerprint, labels, designated absorbing states
 			\State per dimension, compute the cell count and set
 			$\text{edges}_d$~\eqref{eq:bins}
 			\State enumerate cells; assign row-major identifiers
 			\State record cell centres and the partition fingerprint
+			\State attach to each state the labels whose predicates hold
+			at its cell's centre
 			\State designate the terminal representative; reserve the sink
 			identifier
 			\State \Return partition, identifiers, centres, fingerprint,
-			absorbing states
+			labels, absorbing states
 		\end{algorithmic}
 	\end{algorithm}
-	
 	
 	
 	\subsection{Per-transition probability intervals}
@@ -1619,87 +1635,212 @@
 		certificate relates the IMDP to the system as modelled.
 	\end{notebox}
 	
-	//here
-	\subsection{The full pipeline}
-	\label{sec:abs:full}
-	
-	The end-to-end procedure composes the steps above. An injected lead-behaviour model supplies the exogenous lead rule, the noise level, and the grid band in the stochastic dimension. The orchestrator builds the grid; for each source cell and action it computes the row of per-transition intervals via Algorithm~\ref{alg:intervals}; it finalises the safe-sink state; it computes the diagnostic bound (Algorithm~\ref{alg:globalE}); it attaches per-cell controller actions and atomic-proposition labels, both read at cell centres; and it emits a PRISM model encoding the plant IMDP, the perception layer, the controller, and the labelling, together with a second encoding of the same abstraction, described in Section~\ref{sec:cs:exp}, used for model checking at the production scale. The discretisation step is parallelised over chunks of source cells; completed rows are accumulated in memory and both encodings are stream-written to file at export. At the production grid size the accumulated transition structure exceeds the memory of a development workstation, so production generation is performed on a large-memory cluster node (Section~\ref{sec:cs:exp}). Algorithm~\ref{alg:pipeline} states the procedure.
-	
-	\begin{algorithm}[H]
-		\caption{End-to-end IMDP abstraction pipeline.}
-		\label{alg:pipeline}
-		\begin{algorithmic}[1]
-			\Require plant $P$, controller $C$, lead model $L$, grid resolutions $\{r_d\}$, horizon $N$
-			\Ensure PRISM model encoding the IMDP abstraction, the closed-loop encoding of Section~\ref{sec:cs:exp}, and the diagnostic $E$
-			\State resolve $L$; pin the stochastic-dimension band and noise from $L$; reject $L$ if nondeterministic
-			\State build the grid (Algorithm~\ref{alg:grid}), obtaining $M$ cells and a cell-centre map
-			\State initialise an empty IMDP $\mathcal{I}$; mark the terminal cell absorbing under every action
-			\For{each source cell $i \in \{1, \ldots, M-1\}$ \textbf{in parallel chunks}}
-			\For{each action $a$}
-			\State $\mathcal{T} \gets$ per-cell intervals for the cell's edges $(\mathrm{lo}_i, \mathrm{hi}_i)$ under $a$ \Comment{Algorithm~\ref{alg:intervals}}
-			\State store $\mathcal{T}$ as the row $(i, a)$ of $\mathcal{I}$
-			\EndFor
-			\EndFor
-			\State mark cell $M$ (safe sink) as an absorbing self-loop under every action
-			\State $(E, i^\star, a^\star) \gets \textsc{GlobalErrorDiagnostic}(\mathcal{I}, N)$ \Comment{diagnostic, Section~\ref{sec:abs:sound}}
-			\For{each source cell $i$}
-			\State record the controller action $C(c_i)$ as a PRISM controller rule
-			\State attach atomic-proposition labels to $i$ according to the region containing its centre $c_i$
-			\EndFor
-			\State emit the PRISM model: plant IMDP module, perception module, controller module, and labels
-			\State emit the closed-loop encoding of the same abstraction (Section~\ref{sec:cs:exp})
-			\State \Return PRISM model, closed-loop encoding, $E$, $(i^\star, a^\star)$
-		\end{algorithmic}
-	\end{algorithm}
-	
-	\begin{remark}
-		The controller rule and the atomic-proposition labels of a cell are read at its centre. A cell that straddles a controller switching threshold, or a label boundary, is therefore assigned the action and the labels of its centre throughout its extent. The object verified is thus the controller as quantised on the grid, which is exactly the controller the emitted PRISM model executes, rather than the continuous-state controller; the plant intervals are unaffected. Refining the grid shrinks the straddling cells and brings the quantised controller closer to the continuous one.
-	\end{remark}
-	
-	The emitted PRISM model consists of four modules synchronised by a small scheduler that enforces the order $\texttt{perceive} \to \texttt{control} \to \texttt{time\_step}$. The plant module encodes the IMDP intervals; the perception module is the identity map in the perfect-perception setting (and an explicit enumeration of perception outputs in a noisy setting); the controller module is run-length-encoded over contiguous state ranges sharing an action; and the labels (\texttt{crash}, \texttt{safe}, \texttt{nominal}, \texttt{braking}, \texttt{emergency}, \texttt{safe\_physics}, \texttt{safe\_sink}) make the case-study scenarios and regions addressable by the verifier.
-	
-	\subsection{Adaptation of, and departure from, the partition-based framework}
-	\label{sec:abs:rel}
-	
-	Our construction reuses one analytic ingredient from~\cite{Soudjani2013} and departs from it in several deliberate ways. The ingredient we adopt is the per-transition range bound of~\cite[Eq.~3.11]{Soudjani2013}: for the single stochastic dimension we bracket the cell-to-cell probability by the exact range of the integrated Gaussian over the image of the source cell, which Algorithm~\ref{alg:boxprob} computes in closed form. We do not adopt the adaptive gridding procedure of~\cite[Algs.~3--4]{Soudjani2013}; because the only stochastic dimension carries constant noise, the per-row interval width is essentially uniform across the state space and presents no localised error for refinement to exploit, so a uniform grid is both simpler and, here, no less informative.
-	
-	The most consequential departure is on the deterministic dimensions. Rather than collapsing a source cell to the image of its centre, which is the representative-point step of a point-probability construction, we enumerate the exact image of the whole cell by corner evaluation (Algorithm~\ref{alg:imagebox}) and bracket every target cell the image touches, contributing a certain factor where the image lies wholly inside a target cell and the interval $[0,1]$ where it straddles a boundary~\eqref{eq:flo}. This is what makes the construction an over-approximation in the sense required by~\eqref{eq:containment}: an earlier centre-routing version of our own kernel placed all of a cell's mass in the single target containing the centre's image and was not sound near cell boundaries.
-	
-	Soundness itself is not inherited from the additive error formula of~\cite[Eq.~3.13]{Soudjani2013}, which we compute only as the diagnostic~\eqref{eq:Edef} and which is in any case inapplicable to the deterministic dimensions, whose indicator kernels admit no density (Section~\ref{sec:rw}), but from the containment hypothesis~\eqref{eq:containment} and the robust-PCTL preservation result of~\cite{DAK12} over Markov set-chains~\cite{Hartfiel98}; the underlying notion of approximate abstraction is that of~\cite{ADD11}. Finally, the construction is split into separate plant, perception, and controller modules. This architectural decision does not bear on soundness, but it enables the later composition with a separately-constructed perception abstraction described in Section~\ref{sec:cs:future}, and it keeps the controller as an explicit deterministic policy over the abstract states, quantised at cell centres (see the remark in Section~\ref{sec:abs:full}), rather than folding it into the plant abstraction.
-	The split has a further consequence. The plant rows are indexed by abstract state and commanded input alone, and are therefore independent of the control logic that selected the input. A controller with persistent internal modes, a supervisor that switches between control laws at run time, is therefore just a larger deterministic controller module: a discrete mode variable with symbolic switching rules alongside the action rules already emitted. It would compose with the same plant IMDP without any change to the abstraction pipeline, to the containment certificate, or to the transfer argument, since the preservation result of~\cite{DAK12} concerns finite interval models and is indifferent to how their state space is structured. The modular architecture thus extends the construction to hybrid control logic, discrete modes co-evolving with the continuous state, at no cost to the plant abstraction; Section~\ref{sec:cs:sys} notes what this means for the case study's classification.
-	
 	\subsection{Choosing the partition resolution}
 	\label{sec:abs:budget}
 	
-	The brackets a resolution can deliver depend on the property's horizon. This subsection states the quantitative rules by which a resolution is matched to a family of properties. The rules are heuristics. They predict where brackets saturate; Sections~\ref{sec:cs:horizon} and~\ref{sec:cs:sweep} report the measurements that test them.
+	The resolution $r_d$ of~\eqref{eq:bins} is the width of the cells in
+	dimension $d$, and choosing the resolutions decides how finely the
+	partition divides the state space. The choice matters because a cell
+	maps all of its continuous states to a single state of the model
+	(Section~\ref{sec:abs:partition}), and the transition intervals of a
+	row must hold for every continuous state of the source cell.
+	Continuous states grouped in one cell are indistinguishable to the
+	model, so a resolution too coarse for the dynamics collapses
+	continuous states whose behaviour genuinely differs into one cell
+	and hides their differences inside widened intervals. A finer
+	resolution keeps distinct behaviour in distinct cells and narrows
+	the intervals, at the price of more cells. Model checking returns
+	meaningful answers only when the resolutions preserve the
+	distinctions the question depends on. This subsection describes
+	what a resolution preserves, what it hides, and the considerations
+	by which one is chosen.
 	
-	\paragraph{The per-period displacement budget.}
-	In a deterministic dimension, a target straddled by the image carries the lower bound $0$~\eqref{eq:flo}, and the row's upper bounds confine every admissible distribution to the block of cells the image box touches. The worst-case resolution of the intervals can therefore displace the deterministic coordinates by up to one cell width per control period around the modelled dynamics, in a direction of its choosing. The displacements renew each period: the reachable set of the interval model grows by a fixed increment per step, independently of where earlier mass landed. This renewed-per-step growth is the wrapping effect of interval analysis [WRAPPING-EFFECT REFERENCE: TO BE READ AND CITED BEFORE CIRCULATION]; the additive diagnostic $E = N \cdot \max K$ of~\eqref{eq:Edef} is its linear expression. For state-independent noise the per-row half-width sum is spatially uniform: the assembled models report the identical worst value $K = 6.276171$ on two grids of different resolution (Sections~\ref{sec:cs:exp} and~\ref{sec:cs:sweep}), at different worst states.
+	\paragraph{Per-step drift.}
+	The first consideration is how far the model can stray from the
+	modelled dynamics in a single step. In a deterministic dimension, a
+	target cell partly covered by the image box carries the lower bound
+	$0$~\eqref{eq:flo} and a positive upper bound, and the intervals of
+	a row admit every probability distribution that stays within them
+	(Section~\ref{sec:bg:robust}). An admitted distribution may
+	therefore place its mass in any target the image box touches, up to
+	$r_d$ away from where the modelled dynamics put it. The stray
+	renews at every step, because the intervals constrain each step
+	separately and nothing ties one step's distribution to the next.
+	The set of states the model can reach therefore grows by up to
+	$r_d$ per step in each deterministic dimension $d$, wherever
+	earlier mass landed. This renewed-per-step growth is the wrapping
+	effect of interval analysis [WRAPPING-EFFECT REFERENCE].
 	
 	\paragraph{The crossing horizon.}
-	For a start state at distance $D$ from the terminal region along the gap axis, the budget predicts the \emph{crossing horizon}: the first queried step bound at which $P_{\max}$ leaves $0$,
+	A model built on a coarse grid can reach the terminal region
+	(Section~\ref{sec:abs:partition}) sooner than the system it
+	abstracts, because every step carries drift as well as the
+	modelled motion. Suppose the terminal region is reached by moving
+	along one deterministic dimension, the \emph{approach dimension}.
+	In a single step the model moves towards the terminal region by at
+	most the largest movement the modelled dynamics allow plus one
+	cell width of drift. Dividing the distance from the start state to
+	the terminal region by this largest per-step movement estimates
+	the step at which the model first reaches the terminal region, the
+	\emph{crossing horizon},
 	\begin{equation}
-		k_{\text{cross}} \;\approx\; \frac{D}{\bigl(\vego - \vlead^{\min}\bigr)\,\dt \;+\; r_g},
+		k_{\text{cross}} \;\approx\; \frac{D}{\delta^{\max} \;+\; r},
 		\label{eq:budget}
 	\end{equation}
 	where
 	\begin{itemize}
-		\item $k_{\text{cross}}$ is the predicted crossing horizon, in control periods;
-		\item $D$ is the gap distance from the start state to the terminal region;
-		\item $\vego - \vlead^{\min}$ is the largest closing speed the model admits: the ego speed against the lowest lead speed of the grid band;
-		\item $r_g$ is the gap resolution, contributing one cell of displacement budget per period.
+		\item $k_{\text{cross}}$ is the crossing horizon, the
+		estimated number of steps until the model first reaches the
+		terminal region;
+		\item $D$ is the distance from the start state to the terminal
+		region, measured along the approach dimension;
+		\item $\delta^{\max}$ is the largest movement towards the
+		terminal region that the modelled dynamics allow in one step;
+		\item $r$ is the resolution of the approach dimension, adding
+		one cell width of drift each step.
 	\end{itemize}
-	Below $k_{\text{cross}}$ the worst case cannot reach the terminal region and $P_{\max} = 0$ is certified; above it, $P_{\max}$ rises towards saturation at $1$. Equation~\eqref{eq:budget} is a prediction heuristic, not a bound. Its measured status: the predicted crossings match the measured values at five crossings across two sweep grids, and the Emergency\_Brake crossing is later than predicted, so the heuristic errs on the conservative side (Section~\ref{sec:cs:sweep}).
+	Figure~\ref{fig:crossing} draws the estimate. Below the crossing
+	horizon no behaviour the model admits reaches the terminal region.
+	Above it, admitted behaviours reach the terminal region whether or
+	not the modelled dynamics do.
 	
-	\paragraph{Design rules.}
-	Four rules summarise the measured behaviour; each is stated with its evidence.
-	\begin{enumerate}
-		\item \emph{Horizon budget.} A property at step bound $k$ is decidable only if $k$ lies below the crossing horizon~\eqref{eq:budget} of its start state. Evidence: the frontier of Section~\ref{sec:cs:horizon} and the sweep crossings of Section~\ref{sec:cs:sweep}.
-		\item \emph{Control visibility.} The ego resolution must satisfy $r_{\vego} < \alpha \lvert a \rvert \dt$ for a braking action $a$ to be expressible on the grid: one period of braking must move the ego image by at least one cell. For the case study the thresholds are $0.2$\,m/s (brake) and $0.49$\,m/s (emergency). The production resolution $r_{\vego} = 0.5$ fails both; the sweep probe at $0.25$ passes the emergency threshold only; the second certified configuration at $0.1$ passes both. Evidence: the probe grid's fractional certificate at $k = 52$ (Section~\ref{sec:cs:sweep}).
-		\item \emph{Stochastic non-degeneracy.} On a stochastic dimension the ratio $\sigma_d / r_d$ must remain of order one or above, or the range factor~\eqref{eq:Mm} degenerates. The reported configurations use $\sigmav / r_{\vlead} \approx 2.0$.
-		\item \emph{Cell budget.} The cell count $M = \prod_d (\text{range}_d / r_d)$ is capped by generation memory and disk staging, approximately $2 \times 10^6$ cells on the reported infrastructure. A finer resolution is therefore afforded by shrinking the window; Section~\ref{sec:cs:extrafine} instantiates the trade.
-	\end{enumerate}
+	\begin{figure}[h]
+		\centering
+		\begin{tikzpicture}[>=stealth, font=\small]
+			% axis: the approach dimension
+			\draw[->] (-0.3,0) -- (10.8,0)
+			node[below, font=\scriptsize] {approach dimension};
+			% terminal region
+			\fill[red!10] (8.0,0) rectangle (10.0,1.0);
+			\draw[red!60!black] (8.0,0) rectangle (10.0,1.0);
+			\node[above, font=\scriptsize, red!60!black] at (9.0,1.02)
+			{terminal region};
+			% start state
+			\fill (0.4,0) circle (1.6pt);
+			\node[below, font=\scriptsize] at (0.4,-0.1) {start state};
+			% distance D
+			\draw[<->] (0.4,1.55) -- (8.0,1.55)
+			node[midway, above, font=\scriptsize] {$D$};
+			\draw[gray!70, thin, dashed] (0.4,0.05) -- (0.4,1.55);
+			\draw[gray!70, thin, dashed] (8.0,1.0) -- (8.0,1.55);
+			% four steps of length 1.9 = 1.4 (dynamics, blue) + 0.5 (drift, orange)
+			\foreach \i in {0,1,2,3} {
+				\fill[blue!40] ({0.4+\i*1.9},0.18)
+				rectangle ({0.4+\i*1.9+1.4},0.44);
+				\fill[orange!50] ({0.4+\i*1.9+1.4},0.18)
+				rectangle ({0.4+(\i+1)*1.9},0.44);
+				\draw ({0.4+\i*1.9},0.18)
+				rectangle ({0.4+(\i+1)*1.9},0.44);
+			}
+			% labels on the first step
+			\draw[gray!70, thin, dashed] (0.4,0.18) -- (0.4,-0.55);
+			\draw[gray!70, thin, dashed] (1.8,0.18) -- (1.8,-0.85);
+			\draw[gray!70, thin, dashed] (2.3,0.18) -- (2.3,-0.85);
+			\draw[<->] (0.4,-0.5) -- (1.8,-0.5)
+			node[midway, below, font=\scriptsize] {$\delta^{\max}$};
+			\draw[<->] (1.8,-0.8) -- (2.3,-0.8)
+			node[midway, below, font=\scriptsize] {$r$};
+			% one step marked over the second segment, spanning both parts
+			\draw[gray!70, thin, dashed] (2.3,0.44) -- (2.3,0.62);
+			\draw[gray!70, thin, dashed] (4.2,0.44) -- (4.2,0.62);
+			\draw[<->] (2.3,0.67) -- (4.2,0.67)
+			node[midway, above, font=\scriptsize]
+			{one step: $\delta^{\max} + r$};
+		\end{tikzpicture}
+		\caption{The crossing horizon, drawn for
+			$k_{\text{cross}} = 4$. The start state lies at distance $D$
+			from the terminal region along the approach dimension. Each
+			step moves the model by at most $\delta^{\max}$ from the
+			modelled dynamics (blue) plus $r$ of drift (orange). The
+			fourth step reaches the terminal region.}
+		\label{fig:crossing}
+	\end{figure}
 	
+	\paragraph{Control visibility.}
+	An action is useful only if the grid registers it. The model sees
+	an action through the target cells its image box touches. One step
+	under action $a$ displaces the image box by some amount
+	$\delta_d(a)$ in each dimension $d$. A displacement smaller than
+	$r_d$ in every dimension is absorbed by the per-step drift, and the
+	model cannot separate taking the action from not taking it. An
+	action is expressible on the grid only if
+	$r_d < \lvert \delta_d(a) \rvert$ in some dimension $d$.
+	
+	\paragraph{Resolution against the noise.}
+	In a stochastic dimension the resolution is measured against the
+	noise. The stochastic factor of~\eqref{eq:mlo} and~\eqref{eq:Mhi}
+	brackets the landing chance, the probability that the noisy
+	coordinate lands in the target cell, over every position of the
+	prediction in the image interval
+	(Section~\ref{sec:abs:intervals}). When the cell width $r_d$ grows
+	large against the noise spread $\sigma_d$, the landing chance
+	varies from near $1$ to near $0$ as the prediction moves by one
+	cell width; Figure~\ref{fig:noisewidth} draws the landing chance
+	against the position of the prediction for the two cases. The
+	bracket then widens towards $[0,1]$, which admits every
+	probability and rules nothing out. Keeping the ratio
+	$\sigma_d / r_d$ at order one or above keeps the bracket
+	informative.
+
+	\begin{figure}[h]
+		\centering
+		\begin{tikzpicture}[>=stealth, font=\small,
+			declare function={
+				phi(\x)=1/(1+exp(-1.702*max(min(\x,5),-5)));
+				chance(\m,\s)=phi((2.5-\m)/\s)-phi((1.5-\m)/\s);
+			}]
+			% target cell band on the position axis (cell [1.5,2.5], width 1)
+			\fill[black!8] (3.0,0) rectangle (5.0,3.1);
+			\node[font=\scriptsize] at (4.0,3.28) {target cell};
+			% axes (x: position, 1 unit = 0.5 position; y: chance, 3 = 1)
+			\draw[->] (-0.2,0) -- (7.9,0)
+			node[below, font=\scriptsize] {position of the prediction};
+			\draw[->] (0,-0.2) -- (0,3.5)
+			node[left, font=\scriptsize] {landing chance};
+			\draw (-0.07,3.0) -- (0.07,3.0);
+			\node[left, font=\scriptsize] at (-0.1,3.0) {$1$};
+			\node[left, font=\scriptsize] at (-0.1,0) {$0$};
+			% curve: cell width comparable to the noise spread
+			\draw[blue!60!black, thick]
+			plot[domain=0.15:3.85, samples=120]
+			({2*\x-0.3}, {3*chance(\x,0.8)});
+			\node[blue!60!black, font=\scriptsize, anchor=west]
+			at (5.9,1.15) {$\sigma_d/r_d = 0.8$};
+			% curve: cell width large against the noise spread
+			\draw[red!60!black, thick]
+			plot[domain=0.15:3.85, samples=160]
+			({2*\x-0.3}, {3*chance(\x,0.15)});
+			\node[red!60!black, font=\scriptsize, anchor=west]
+			at (5.9,0.45) {$\sigma_d/r_d = 0.15$};
+			% one marked prediction, at the middle of the target cell
+			% (position 2.0 -> x = 3.7); chance(2.0,0.8) ~ 0.47, chance(2.0,0.15) ~ 1
+			\fill (3.7,0) circle (1.8pt);
+			\node[below, font=\scriptsize] at (3.7,-0.1)
+			{one prediction};
+			\draw[gray!70, thin, dashed] (3.7,0) -- (3.7,3.0);
+			\fill[blue!60!black] (3.7,{3*chance(2.0,0.8)}) circle (1.6pt);
+			\fill[red!60!black] (3.7,{3*chance(2.0,0.15)}) circle (1.6pt);
+		\end{tikzpicture}
+		\caption{The landing chance in one target cell (shaded) as the
+			prediction moves, drawn for two ratios of noise spread to
+			cell width. Each point of a curve gives the landing chance
+			for a prediction at that position; one prediction at the
+			middle of the target cell is marked, with its landing chance
+			on each curve. With the cell width comparable to the noise
+			spread (blue), the landing chance stays moderate everywhere.
+			With the cell width large against the noise spread (red),
+			the landing chance is near $1$ for a prediction inside the
+			target cell and near $0$ one cell width away.}
+		\label{fig:noisewidth}
+	\end{figure}
+
+	\paragraph{The cell budget.}
+	Finer resolutions cost cells. The cell count $M$
+	of~\eqref{eq:Mcount} multiplies across dimensions, and memory and
+	disk cost grow with $M$, so the affordable count is capped by the
+	generation infrastructure. Within the cap, a finer resolution in
+	one dimension is afforded by coarsening another dimension or by
+	shrinking the modelled window.
 	
 	\section{Case Study: An Autonomous Emergency Braking System}
 	\label{sec:cs}
