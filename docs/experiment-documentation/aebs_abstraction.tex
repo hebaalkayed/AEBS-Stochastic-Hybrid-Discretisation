@@ -1845,170 +1845,9 @@
 	\section{Case Study: An Autonomous Emergency Braking System}
 	\label{sec:cs}
 	
-	We apply the procedure of Section~\ref{sec:abs} to a three-dimensional model of an Autonomous Emergency Braking System. Section~\ref{sec:cs:sys} describes the continuous system, Section~\ref{sec:cs:arch} the implementation architecture, Section~\ref{sec:cs:exp} the experimental configuration, the certificates, and the ten-second campaign, Section~\ref{sec:cs:horizon} the horizon-resolved campaign, Section~\ref{sec:cs:sweep} the resolution sweep, Section~\ref{sec:cs:extrafine} the second certified configuration and its results, and Section~\ref{sec:cs:future} the future work.
+	This section applies the construction of Section~\ref{sec:abs} to an Autonomous Emergency Braking System (AEBS), a system responsible for braking when there is a potential for collision. The system consists of three components, a perception component that perceives the environment the vehicle is in, a controller that relies on the perception component to issue braking commands, and a plant that executes the commands the controller issues, as Figure~\ref{fig:arch} shows.
 	
-	\subsection{System description}
-	\label{sec:cs:sys}
-	
-	\paragraph{State space.}
-	The continuous state is the triple
-	\begin{equation}
-		s \;=\; (g,\, \vego,\, \vlead) \;\in\; \mathcal{S} \;=\; [0, 100] \times [0, 30] \times [-1, 31] \;\subset\; \R^3,
-		\label{eq:statespace}
-	\end{equation}
-	where $g$ is the relative gap (m), $\vego$ the ego velocity (m/s), and $\vlead$ the lead velocity (m/s). The lower bound $-1$ on $\vlead$ provides one cell of headroom below zero so the discretised Gaussian tail at $\vlead = 0$ does not immediately escape the grid; physically $\vlead \ge 0$. The remaining bounds are likewise modelling choices, sized to envelope the scenarios of Section~\ref{sec:cs:exp}: velocities up to $30$\,m/s ($108$\,km/h) exceed every speed exercised there, and an initial gap of up to $100$\,m places even the fastest approach several seconds from its lead.
-	
-	\paragraph{Actions.}
-	The controller commands one of three accelerations,
-	\begin{equation}
-		U \;=\; \{\,a_0 = 0,\; a_1 = -4,\; a_2 = -9.8\,\}\ \text{m/s}^2,
-		\label{eq:actions}
-	\end{equation}
-	labelled \emph{coast}, \emph{brake}, and \emph{emergency}.
-	
-	\paragraph{Controller logic.}
-	The controller selects among the actions of~\eqref{eq:actions} as a deterministic, memoryless function of the perceived state, through two derived quantities: the closing speed $v_{\text{rel}} = \vego - \vlead$ and the time to collision $\mathrm{TTC} = g / v_{\text{rel}}$, the latter defined when $v_{\text{rel}} > 0.1$\,m/s and taken as unbounded otherwise~\cite{EuroNCAP}. Its thresholds and decelerations are those of the implementation's \texttt{industry} configuration [CITATION FOR THE INDUSTRY BENCHMARK THRESHOLDS]. At low closing speeds ($v_{\text{rel}} < 5$\,m/s) the decision is distance-based: \emph{emergency} ($a_2$) when $g < 2$\,m, \emph{brake} ($a_1$) when $2 \le g < 6$\,m, and \emph{coast} ($a_0$) otherwise. At higher closing speeds it is TTC-based: \emph{emergency} when $\mathrm{TTC} < 1.0$\,s, \emph{brake} when $1.0 \le \mathrm{TTC} < 1.6$\,s, and \emph{coast} otherwise. An early-braking variant of the controller (\texttt{safe}), with wider thresholds and an emergency deceleration of $-8$\,m/s\textsuperscript{2}, is retained in the implementation for comparison runs and is not reported here. In the abstraction the deployed function is evaluated at cell centres and emitted as the run-length-encoded controller module of Section~\ref{sec:abs:full}.
-	
-	\paragraph{Terminal region and atomic propositions.}
-	The designated terminal region of Section~\ref{sec:abs:partition} is $g \le 0$: transitions whose image reaches it are routed to the absorbing crash cell by Algorithm~\ref{alg:intervals}. The labels emitted with the model are predicates over the same derived quantities as the controller, evaluated at cell centres. \texttt{crash} holds on the cells whose centres satisfy $g \le 0$, that is, on the full slab of cells at the lowest gap index and not only on the absorbing cell itself; \texttt{safe} holds on every other grid cell, and \texttt{safe\_sink} on the safe sink. Two further labels mark dual-trigger risk regions, bound to the controller's warning and emergency thresholds: \texttt{braking} holds where $g < 10$\,m or $\mathrm{TTC} < 2.6$\,s, and \texttt{emergency} where $g < 2$\,m or $\mathrm{TTC} < 1.0$\,s. The label \texttt{nominal} holds on the \texttt{safe} cells outside \texttt{braking}: the states in which no braking is called for. Neither risk region coincides with the set of cells on which the controller commands the corresponding action, for two reasons: the \texttt{braking} thresholds are the warning thresholds, wider than the braking thresholds of the decision logic, and the decision logic branches on the closing speed whereas the labels apply both triggers at every state. A property over \texttt{braking} is therefore a statement about the \emph{warning region}, not about the controller braking, and a property over \texttt{emergency} is a statement about the \emph{emergency region}, not about the controller emergency-braking. The label \texttt{safe\_physics} is at present identical to \texttt{safe} and is retained for interface compatibility.
-	
-	\paragraph{One-step deterministic dynamics.}
-	The plant computes a deterministic next state given $(s, a)$, split into an ego update, an exogenous lead update, and a gap update,
-	\begin{align}
-		a_{\text{ego}} &\;=\; \alpha \cdot a, \qquad \alpha = 0.5\ \text{(static actuator gain)}, \label{eq:lag}\\
-		\vego' &\;=\; \max\!\bigl\{0,\; \vego + a_{\text{ego}} \cdot \dt\bigr\}, \label{eq:vego}\\
-		\vlead' &\;=\; \max\!\bigl\{0,\; \vlead\bigr\} \quad \text{(default lead rule, overridable by an injected model)}, \label{eq:vlead}\\
-		g' &\;=\; g + \bigl(\vlead' - \vego'\bigr) \cdot \dt, \label{eq:gap}
-	\end{align}
-	with $\dt = 0.1$\,s, the modelled decision period of the controller. Equation~\eqref{eq:gap} uses the updated velocities $\vego'$ and $\vlead'$ rather than their previous-step values, making this a semi-implicit (symplectic) Euler step. The ego update is controller-driven; the lead update is exogenous and does not run the controller. The factor $\alpha$ attenuates the commanded acceleration as a memoryless gain; the simulation environment implements a full first-order actuator lag, of which this stateless gain is the abstracted simplification; the value $\alpha = 0.5$ is itself a modelling choice, representing a conservatively weak actuator response.
-	
-	\paragraph{Monotonicity and continuity.}
-	Assumption~\ref{ass:sysclass}(iii) requires each output coordinate of the one-step map to be monotone in each input coordinate, and~\eqref{eq:vego}--\eqref{eq:gap} satisfy this. $\vego'$ is nondecreasing in $\vego$ and independent of the other coordinates, the flooring $\max\{0, \cdot\}$ preserving monotonicity; $\vlead'$ is nondecreasing in $\vlead$ and independent of the others, for the same reason; and $g'$ is nondecreasing in $g$, nondecreasing in $\vlead$ through $\vlead'$, and nonincreasing in $\vego$ through $\vego'$. The extrema of every output coordinate over a cell are therefore attained at the cell's corners, as~\eqref{eq:imagebox} requires. Each output coordinate is moreover continuous in the state, the floors $\max\{0, \cdot\}$ being continuous functions, which discharges the continuity requirement of Assumption~\ref{ass:sysclass}(ii). The same floors settle the lower-boundary escape case of Section~\ref{sec:abs:intervals} for this system: $\vego'$ cannot fall below zero, and zero lies in a cell interior by the half-cell offset of~\eqref{eq:bins}, so bottom-of-grid escape does not arise in $\vego$; the gap's lower boundary is the crash wall, handled by the terminal routing; and out-of-band mass in the stochastic dimension is handled by the truncation policy, not by escape routing.
-	
-	\paragraph{Stochastic model.}
-	The kernel is Gaussian as a consequence of the following modelling assumption.
-	
-	\begin{assumption}[Lead-vehicle uncertainty]
-		\label{ass:lead}
-		The lead-vehicle acceleration is an i.i.d.\ Gaussian random variable, $a_{\text{lead}}^{(k)} \sim \Norm(0, \sigmaa^2)$, independent across time steps. The ego dynamics and the gap update are deterministic given $(s, a)$ and the realisation of $a_{\text{lead}}^{(k)}$.
-	\end{assumption}
-	
-	The constant $\sigmaa$ aggregates a small plant-process noise and the lead-acceleration noise,
-	\begin{equation}
-		\sigmaa \;=\; \sqrt{\sigma_{\text{plant}}^2 + \sigma_{\text{lead}}^2} \;=\; \sqrt{0.05^2 + 2.0^2} \;\approx\; 2.0006\ \text{m/s}^2,
-		\label{eq:sigmaa}
-	\end{equation}
-	and a first-order Euler step on velocity gives the per-step velocity noise and the lead-velocity kernel
-	\begin{equation}
-		\sigmav \;=\; \sigmaa \cdot \dt \;\approx\; 0.2001\ \text{m/s}, \qquad
-		\vlead' \;\sim\; \Norm\bigl(\,\max(0, \vlead),\; \sigmav^2\,\bigr).
-		\label{eq:sigmav}
-	\end{equation}
-	The numerical values are modelling choices rather than standardised quantities: $\sigma_{\text{lead}} = 2.0$\,m/s\textsuperscript{2} is chosen so that, through~\eqref{eq:sigmav}, the lead's step-to-step speed change is moderate (a standard deviation of $0.2$\,m/s per $0.1$\,s step), and $\sigma_{\text{plant}} = 0.05$\,m/s\textsuperscript{2} is a small allowance for unmodelled plant disturbance; neither is calibrated against measured driving data at this stage of the programme.
-	
-	\begin{remark}[Process noise is prediction uncertainty, not estimation uncertainty]
-		The Gaussian term in~\eqref{eq:sigmav} models what the lead vehicle will do
-		over the coming time step, not how accurately the current state is measured.
-		The kernel mean $\max(0, \vlead)$ is the lead model's deterministic
-		prediction of the next lead velocity, and the scatter around it is the
-		effect of the lead acceleration of Assumption~\ref{ass:lead}, which at the
-		moment of prediction has not yet been realised. Under the perfect-perception
-		setting of this paper the current state $(g, \vego, \vlead)$ is known
-		exactly; the uncertainty concerns its evolution, and no sensor fidelity
-		reduces it, since a sensor reports the lead's present velocity rather than
-		its driver's next decision. It is therefore distinct from, and orthogonal
-		to, the perception uncertainty of the later tracks
-		(Section~\ref{sec:cs:future}), which concerns errors in estimating the
-		current state; the perception-aware construction composes the two rather
-		than substituting one for the other.
-	\end{remark}
-	
-	\paragraph{The gap-noise approximation.}
-	Since $g' = g + (\vlead' - \vego')\,\dt$ and $\vlead'$ is the only random input, $g'$ inherits noise from $\vlead'$: the true joint distribution of $(g', \vlead')$ is a degenerate (rank-one) bivariate Gaussian, with
-	\begin{equation}
-		\sigma_g \;=\; \sigmav \cdot \dt \;\approx\; 0.02\ \text{m}.
-		\label{eq:gapnoise}
-	\end{equation}
-	We discard this correlation and treat $g$ as deterministic given the centroid. This is a deliberate simplification: with cell width of order $1$\,m and $\sigma_g \approx 0.02$\,m, a single Gaussian step in gap is well within one cell, and the simplification keeps the kernel factorisable as a product of marginals across dimensions. The implementation reflects this by setting $\sigma_{\text{per dim}} = (0,\, 0,\, \sigmav)$. The containment certificate of Section~\ref{sec:abs:sound} is evaluated against this same modelling kernel.
-	
-	\paragraph{Kernel structure.}
-	The modelling kernel is therefore a product of three one-dimensional
-	factors, discharging the factorisation requirement of
-	Assumption~\ref{ass:sysclass}(i): Dirac point masses on gap and $\vego$,
-	whose one-step values are computed exactly by~\eqref{eq:vego}
-	and~\eqref{eq:gap}, and a Gaussian density on $\vlead$, given
-	by~\eqref{eq:sigmav}. Figure~\ref{fig:kernelfactors}
-	traces one step: the transition probability to a target cell is the product
-	of two indicator factors and one area factor. This is the concrete instance
-	of the generic factor split of Section~\ref{sec:abs:intervals}
-	(Figure~\ref{fig:atomvsdensity}), and it delimits where the ingredients of
-	Section~\ref{sec:abs:rel} apply: the range bound of~\cite{Soudjani2013}
-	operates on the density factor, and the image-box enumeration on the two
-	point-mass factors.
-	
-	\begin{figure}[h]
-		\centering
-		\resizebox{0.98\textwidth}{!}{%
-			\begin{tikzpicture}
-				\node[font=\small\sffamily\bfseries] at (7.6,3.6)
-				{One step from $s = (5.32,\ 10,\ 8)$ under \emph{coast}};
-				% panel 1: gap
-				\node[font=\small\sffamily\bfseries] at (1.9,2.9) {gap: Dirac};
-				\draw[gray!60] (0.2,0.6) -- (3.6,0.6);
-				\draw[accentOrange, ultra thick, -{Latex[length=2.5mm]}] (1.9,0.6) -- (1.9,2.4);
-				\fill[accentOrange] (1.9,0.6) circle (2pt);
-				\node[font=\scriptsize\sffamily] at (1.9,0.28) {$g' = 5.12$ exactly};
-				\node[font=\scriptsize\sffamily, text width=3.3cm, align=center] at (1.9,-0.45)
-				{factor to cell $[4.5, 5.5)$: $1$\\to any other cell: $0$};
-				% panel 2: v_ego
-				\begin{scope}[shift={(4.6,0)}]
-					\node[font=\small\sffamily\bfseries] at (1.9,2.9) {$\vego$: Dirac};
-					\draw[gray!60] (0.2,0.6) -- (3.6,0.6);
-					\draw[accentOrange, ultra thick, -{Latex[length=2.5mm]}] (1.9,0.6) -- (1.9,2.3);
-					\fill[accentOrange] (1.9,0.6) circle (2pt);
-					\node[font=\scriptsize\sffamily] at (1.9,0.28) {$\vego' = 10$ exactly};
-					\node[font=\scriptsize\sffamily, text width=3.3cm, align=center] at (1.9,-0.45)
-					{factor to cell $[9.75, 10.25)$: $1$\\to any other cell: $0$};
-				\end{scope}
-				% panel 3: v_lead
-				\begin{scope}[shift={(9.2,0)}]
-					\node[font=\small\sffamily\bfseries] at (2.5,2.9) {$\vlead$: Gaussian density};
-					\draw[gray!60] (0.2,0.6) -- (4.8,0.6);
-					\fill[imdpLightBlue] (2.26,1.9) .. controls (2.36,2.28) and (2.64,2.28) .. (2.74,1.9)
-					-- (2.74,0.6) -- (2.26,0.6) -- cycle;
-					\draw[imdpBlue, thick] (0.4,0.62) .. controls (1.6,0.68) and (1.9,2.3) .. (2.5,2.32)
-					.. controls (3.1,2.3) and (3.4,0.68) .. (4.6,0.62);
-					\draw[imdpBlue!60] (2.26,0.6) -- (2.26,1.95);
-					\draw[imdpBlue!60] (2.74,0.6) -- (2.74,1.95);
-					\node[font=\scriptsize\sffamily] at (2.5,0.28) {$\vlead' \sim \Norm(8,\ 0.2001^2)$};
-					\node[font=\scriptsize\sffamily, text width=4.4cm, align=center] at (2.5,-0.45)
-					{factor to cell $[7.95, 8.05)$: shaded area $\approx 0.197$};
-				\end{scope}
-				\node[font=\small\sffamily] at (7.6,-1.35)
-				{$P(\text{target cell}) \;=\; 1 \times 1 \times 0.197$:\ \ two indicator
-					factors and one area factor, multiplied};
-			\end{tikzpicture}%
-		}
-		\caption{The AEBS modelling kernel as a product of three one-dimensional
-			factors, traced for one step. The deterministic dimensions carry Dirac
-			point masses (indicator factors); the lead velocity carries a Gaussian
-			density (an area factor). The probabilities shown are exact for the
-			\code{medium\_tight} grid of Section~\ref{sec:cs:exp}.}
-		\label{fig:kernelfactors}
-	\end{figure}
-	
-	\paragraph{Lead-behaviour model.}
-	The exogenous lead rule of~\eqref{eq:vlead} is supplied by an injectable lead-behaviour model, which owns the lead's dynamics and their modelling envelope: the transition rule, the noise level of Assumption~\ref{ass:lead}, and the grid band of the stochastic dimension. One deterministic profile is composed at present, implementing the hold rule of~\eqref{eq:vlead}: the lead's next velocity is its current velocity, floored at zero. A stationary lead and a constant-speed lead are both instances of this rule, distinguished only by the initial lead velocity; both correspond to standard car-to-car rear test scenarios~\cite{EuroNCAP}. Verification scenarios are not properties of the lead model: they are start states of the encounter, specified by the ego's situation at time zero in continuous coordinates and resolved to grid cells (Section~\ref{sec:cs:exp}), so one scenario catalogue serves any lead profile whose grid band contains its states. With a moving lead the gap update couples to the lead velocity, which shears the image set of each source cell and widens the deterministic gap bracket relative to the stationary case; this affects the tightness of the intervals, not their soundness. A nondeterministic lead, which may apply any of a set of admissible accelerations at each step~\cite{EuroNCAP}, is defined in the implementation but not composed: it requires a second (lead) action axis in the discretiser and the composition, and its treatment is deferred to Section~\ref{sec:cs:future}.
-	
-	\paragraph{Formal classification.}
-	With a deterministic lead, the system is a discrete-time stochastic control system $\Sigma = (\mathcal{X}, U, T_x)$ in the sense of~\cite[Sec.~3]{Soudjani2013}, with $\mathcal{X}$ continuous, $U$ finite, and $T_x$ a Dirac--Gaussian product kernel; the controller's operating regimes are values of the input $a \in U$, not discrete plant modes, so $|Q| = 1$ and the full hybrid-mode machinery of~\cite[Sec.~4]{Soudjani2013} is not needed. The restriction to $|Q| = 1$ is a property of the present closed loop, not of the construction: because the plant rows depend only on the cell and the commanded acceleration, a controller with a persistent internal mode, for instance a supervisor toggling between the deployed law and a fallback law, would make the composed system a stochastic hybrid system with $|Q| \ge 2$ while reusing this plant IMDP and its containment certificate unchanged (Section~\ref{sec:abs:rel}). The runtime monitors envisaged by the wider programme, which may switch to a fallback law on detecting a perception failure, are supervisors of exactly this kind. A nondeterministic lead would introduce a second action axis, over which the model checker would quantify in the worst case; building that path is the deferred extension.
-	
-	\subsection{Implementation architecture}
-	\label{sec:cs:arch}
-	
-	The case-study system comprises four logical subsystems (Figure~\ref{fig:arch}): two perception components that consume camera and radar inputs, a controller that fuses their outputs and selects an action, and a vehicle plant whose continuous dynamics produce the next state. Under perfect perception the perception components are exact, and only the plant is abstracted; the perception and controller subsystems are exact symbolic translations into PRISM.
-	
-	\begin{figure}[h]
+	\begin{figure}[H]
 		\centering
 		\resizebox{0.9\textwidth}{!}{%
 			\begin{tikzpicture}[
@@ -2044,250 +1883,374 @@
 				\draw[line] (plant.north) -- ++(0,0.9) -| (ctrl.north);
 			\end{tikzpicture}%
 		}
-		\caption{Case-study system architecture. Under perfect perception only the plant is abstracted.}
+		\caption{The AEBS and its interfaces.}
 		\label{fig:arch}
 	\end{figure}
 	
-	The PRISM encoding comprises four modules, synchronised by a small scheduler.
+	The IMDPs that the abstraction produces are sound by the containment certificate of Section~\ref{sec:abs:sound}. We feed the abstracted system into a probabilistic model checker, the verifier, to understand its behaviour with respect to a safety property, here a crash safety property. The IMDPs are translated automatically into the input language of the verifier and checked for the worst-case and best-case probability of a crash within a bounded time, from named start states and from whole labelled regions. We generate a coarser grid and verify that the worst-case crash probability is certified to be zero up to a horizon that depends on the start state. We then generate a finer grid, restricted to a car-following window. On both grids the best-case probability is zero from every start state that is not already certain to crash. Section~\ref{sec:cs:sys} describes the system, Section~\ref{sec:cs:model} the modelling choices, Section~\ref{sec:cs:exp} the abstractions and their certificates, Section~\ref{sec:cs:ver} the verification results, and Section~\ref{sec:cs:future} what the results mean for the wider programme.
 	
-	\begin{center}
-		\begin{tabular}{ll}
-			\toprule
-			\textbf{Module} & \textbf{Responsibility} \\
-			\midrule
-			Plant (IMDP) & Stochastic physics; built by discretisation. \\
-			Perception (deterministic) & Identity in perfect perception; optional sensor noise otherwise. \\
-			Controller (deterministic) & Symbolic action selection; one rule per cell, run-length encoded. \\
-			Turn (scheduler) & Enforces order $\texttt{perceive} \to \texttt{control} \to \texttt{time\_step}$. \\
-			\bottomrule
-		\end{tabular}
-	\end{center}
-	\subsection{Experimental configuration, certificates, and verification}
-	\label{sec:cs:exp}
+	\subsection{System components}
+	\label{sec:cs:sys}
 	
-	\paragraph{Configuration.}
-	We report the \code{medium\_tight} grid preset, the configuration on which the abstraction is certified, with the deterministic lead started stationary. The grid shape is $(101, 61, 321)$, giving $M = 1{,}977{,}681$ cells.
+	In each \emph{control period}, the fixed time between successive controller decisions, the perception layer hands the controller the current state, the controller commands an acceleration, and the plant advances the state under that acceleration. The perception layer has a camera-based and a radar-based component. Under perfect perception the perception layer passes the state through unchanged, so the controller receives the true state, and both the perception layer and the controller are translated exactly into the verifier's input language, while the plant alone is abstracted (Section~\ref{sec:cs:exp}).
 	
-	\begin{center}
-		\begin{tabular}{ll}
-			\toprule
-			\textbf{Parameter} & \textbf{Value} \\
-			\midrule
-			Grid resolution $(r_g, r_{\vego}, r_{\vlead})$ & $(1.0,\,0.5,\,0.1)$ \\
-			Bounds $(g, \vego, \vlead)$ & $[0,100]\times[0,30]\times[-1,31]$ \\
-			Grid shape $(n_g, n_{\vego}, n_{\vlead})$ & $(101,\,61,\,321)$ \\
-			Number of cells $M$ & $1{,}977{,}681$ \\
-			Lead-acceleration std $\sigmaa$ & $\approx 2.0006$ m/s\textsuperscript{2} (Eq.~\ref{eq:sigmaa}) \\
-			Velocity-step std $\sigmav$ & $\approx 0.2001$ m/s (Eq.~\ref{eq:sigmav}) \\
-			Time step $\dt$ & $0.1$ s \\
-			Action set $U$ & $\{0, -4, -9.8\}$ m/s\textsuperscript{2} (Eq.~\ref{eq:actions}) \\
-			Controller configuration & \texttt{industry} \\
-			Lead model & hold rule, deterministic~\cite{EuroNCAP} \\
-			Stochastic-tail policy & truncating; renormalised within the grid band (Eq.~\ref{eq:trunc}) \\
-			\bottomrule
-		\end{tabular}
-	\end{center}
-	
-	The state count reflects the choice of $r_{\vlead} = 0.1$ m/s, which is half the velocity-step noise standard deviation $\sigmav$, giving a noise-to-cell-width ratio of $\sigmav / r_{\vlead} \approx 2.0$. This is at the lower end of what keeps the range-based factor~\eqref{eq:Mm} non-degenerate; the resolution is essentially as coarse as it can be taken without the stochastic factor collapsing.
-	
-	\paragraph{Containment certificate.}
-	The containment test of Section~\ref{sec:abs:sound} is run over the entire \code{medium\_tight} grid. It visits every one of the $M = 1{,}977{,}681$ source cells under all three actions and samples $3$ states per dimension, $27$ per cell, spanning the half-open extent of the cell: in each dimension the samples run from the exact lower edge to the largest floating-point value strictly below the upper edge. At each sampled state it checks that the true one-step transition probability to each reachable target cell lies within the stored interval, at a numerical tolerance of $10^{-7}$. The tolerance dominates the only mass the construction deliberately neglects, the Gaussian tail beyond the $\pm 6\sigmav$ search window and the dropped negligible products of Section~\ref{sec:abs:intervals}, both of order $10^{-9}$ or below. Certificates are bound to a \emph{run identity} comprising the lead model, the grid preset, the partition fingerprint (a hash of the exact cell edges; here \code{3672963e58eb75b5}), a hash of the kernel source, the controller configuration together with its action values, and the test version; progress recorded under one identity cannot be resumed under another, so a certificate can never silently mix configurations. For the configuration of this section the test visited all $1{,}977{,}681$ cells under all three actions, processed in $989$ chunks on $32$ cores of the cluster node, and completed with \emph{zero} violations and a worst recorded excess of $0$; the run identity is \code{static\_industry\_medium\_tight\_g3672963e\_ka6a68d63\_abb83a370\_v3}, at code revision \code{3b9f3e9}, and the run completed in under $65$ minutes of wall-clock time. This discharges the containment hypothesis~\eqref{eq:containment} for the reported configuration and, together with the robust-verification argument of Section~\ref{sec:abs:sound}, certifies the abstraction as a sound over-approximation of the modelling kernel.
-	
-	\paragraph{Interval-width diagnostic.}
-	The diagnostic~\eqref{eq:Edef} was computed on the assembled production IMDP: the worst-row half-width sum is $K = 6.276171$, giving $E = N \cdot K = 62.761707$ at the reporting horizon $N = 10$, attained by a \emph{coast} row in the topmost $\vlead$ band of the grid. A bound of this magnitude on a probability is vacuous, as anticipated structurally in Sections~\ref{sec:rw} and~\ref{sec:abs:sound}: with state-independent noise the per-row width is essentially uniform across the state space, and the maximising rows sit where the truncation renormalisation of~\eqref{eq:trunc} divides by the smallest in-band Gaussian mass, at the edge of the grid band. The containment certificate above is unaffected; $E$ plays no role in it.
-	
-	\paragraph{Structure of the interval lower bounds.}
-	The deterministic factor~\eqref{eq:flo} contributes its certain value only when the image interval lies strictly inside a single half-open target cell, and for this system that containment never holds on an interior cell. In the gap dimension the image of a cell is the cell's own width plus the shear contributed by the velocity coupling of~\eqref{eq:gap}, so it is strictly wider than one cell; in the $\vego$ dimension the image is a translation of the cell by $a_{\text{ego}} \cdot \dt$, of exactly the cell's width, which fails the strict upper inequality of~\eqref{eq:flo} even when the translation aligns with the grid. Every interior transition therefore carries the lower bound $0$, at every grid resolution; refinement does not remove this. Each such bound is exact rather than conservative: for a straddled target, some state of the source cell reaches it with probability $0$, so $0$ is the true minimum of~\eqref{eq:txonstates} over the cell. The looseness of the abstraction lies instead in the independence of the per-target intervals: the stored constraints bound each target separately, together with row feasibility, and discard the fact that all states of a cell follow a single one-step distribution. The effect on the verified values is bounded by the row's upper bounds, which confine every admissible distribution to the block of target cells the image box touches; the freedom the zero lower bounds grant therefore amounts to a displacement of at most one cell width per step around the modelled dynamics. Refining the grid shrinks that displacement in physical units and narrows the verified brackets, although the per-transition zeros persist. The pair $[P_{\min}, P_{\max}]$ is reported as a bracket whose width is the abstraction's precision at the property's horizon: the displacement budget grows by one cell width per period, so the brackets are informative only at horizons over which the accumulated budget remains small against the distances that decide the property.
-	
-	\paragraph{Model generation.}
-	Generating the model at this resolution exceeds the memory of the development workstation: the image-box kernel produces several times more transitions per row than a single-target routing would. Production generation is therefore performed on a departmental cluster node with $64$ cores and $503$\,GB of memory, parallelised over $63$ worker processes; the partition fingerprint recorded at generation is required to match that of the containment certificate. Both exporters print every interval bound to eight decimal places, rounded outward: lower bounds are rounded down and upper bounds up, clamped to $[0,1]$. Outward rounding widens a printed interval by at most one quantum of $10^{-8}$, and a widened interval that contained the true transition probability still contains it, so the printed model inherits the containment property of the in-memory intervals; the quantisation is two orders of magnitude below the certificate tolerance. For the configuration of this section, generation completed in approximately $43$ minutes of wall-clock time, producing a modular PRISM artifact of $31{,}073{,}746{,}675$ bytes (approximately $28.9$\,GiB) and a direct-encoding artifact of $11{,}002{,}523{,}700$ bytes (approximately $10.2$\,GiB), at code revision \code{3b9f3e9}.
-	
-	\paragraph{Model checking at scale.}
-	Storm's PRISM engine parses a model file into an in-memory syntactic representation before constructing the state space, and at the size of the production artifact that representation exceeded the memory of the cluster node: seven per-scenario invocations against the modular PRISM file were terminated by the operating system after $2.5$ to $3.4$ hours each, returning no results. The pipeline therefore emits, alongside the modular PRISM model, the same abstraction in Storm's \emph{direct encoding} (DRN)~\cite{Storm}: an explicit listing of states, actions, interval transitions, and state labels that the checker streams directly into its sparse model representation, with no syntactic intermediate. The direct encoding has no module or synchronisation syntax, so the object emitted in it is the flattened synchronised product of the modular model, which is in any case the object Storm itself constructs when checking the modular file.
-	
-	Under perfect perception the product admits an exact reduction. Write $C(c_i)$ for the quantised controller of Section~\ref{sec:abs:full}, the action assigned to state $i$ at its centre. In the modular model one \emph{control period}, of duration $\dt$, consists of three synchronised transitions: \texttt{perceive} copies the plant state to the controller's input, \texttt{control} applies the controller function to that input, and \texttt{time\_step} draws the next plant state from the row of the current state under the commanded action. The first two transitions are deterministic, so the action commanded at plant state $i$ is $C(c_i)$ in every period, and the product reduces to the \emph{closed-loop} IMDP over the plant's own states, carrying a single action per state:
+	\paragraph{The plant.}
+	The plant carries the continuous state
 	\begin{equation}
-		\hat U_{\mathrm{cl}}(i) \;=\; \{\, C(c_i) \,\}, \qquad
-		\check P_{\mathrm{cl}}(i, \cdot) = \check P\bigl(i, C(c_i), \cdot\bigr), \qquad
-		\hat P_{\mathrm{cl}}(i, \cdot) = \hat P\bigl(i, C(c_i), \cdot\bigr),
-		\label{eq:collapse}
+		s \;=\; (g,\, \vego,\, \vlead) \;\in\; \mathcal{S} \;=\; [0, 100] \times [0, 30] \times [-1, 31] \;\subset\; \R^3,
+		\label{eq:statespace}
 	\end{equation}
-	where $\check P, \hat P$ are the plant intervals of~\eqref{eq:imdp} and the subscript marks the closed-loop model. The reduction changes the step accounting: one transition of the closed-loop encoding is one control period, whereas one period costs three transitions of the modular model. A bounded-reachability horizon of $N$ periods is therefore expressed as a step bound of $N$ on the closed-loop encoding and of $3N$ on the modular model; property step bounds are not interchangeable between the two.
+	where
+	\begin{itemize}
+		\item $g$ is the gap from the ego vehicle to the lead vehicle (m), a deterministic dimension;
+		\item $\vego$ is the ego velocity (m/s), a deterministic dimension;
+		\item $\vlead$ is the lead velocity (m/s), the stochastic dimension of \hyperref[ass:sysclass]{Assumption~(i)}.
+	\end{itemize}
+	The bounds are modelling choices. The lead velocity is physically nonnegative; its range extends below zero so that the noise of Section~\ref{sec:cs:model} around a stationary lead stays inside the grid.
 	
-	\paragraph{Equivalence certificate.}
-	The closed-loop encoding is produced by a separate exporter, so its agreement with the modular model is checked file against file rather than assumed. The check first parses the modular file's perception module and fails unless it is the symbolic identity, the validity condition of the reduction~\eqref{eq:collapse}; it then parses the run-length-encoded controller module into the full map $i \mapsto C(c_i)$. It then verifies, streaming both files in lockstep: that the closed-loop encoding carries exactly one action per state; that this action equals $C(c_i)$; that its transition list equals the plant row of $(i, C(c_i))$ in the modular file, target for target and bound for bound; and that the label state sets of the two files coincide. A cryptographic hash of the compared transition stream is recorded on both sides as the certificate of a passing run. The reduction is additionally validated numerically: on a coarse grid of $11{,}088$ cells, the bounded-reachability values of the modular model at step bound $3k$ and of the closed-loop encoding at step bound $k$ agree to within $10^{-12}$ for $k$ up to $100$, under both the worst-case and the best-case interval resolution. For the production artifacts the check passed: the direct encoding carries exactly one action per state across all $1{,}977{,}682$ states (the grid cells and the safe sink), every transition list matches the controller-selected plant row bound for bound, and the label state sets of the two files coincide, with the scenario labels present only in the direct encoding as intended, in approximately $31$ minutes of wall-clock time; the canonical hash \code{052370659bd5733e512f2175a93f7d075b8faa2751232452adfa1d21d45fe6c3} was recorded identically for the composed modular model and the direct encoding.
-	
-	\paragraph{Scenario states.}
-	The verification campaign addresses four non-absorbing scenario states, staged points along a car-to-car rear encounter with a stationary lead (the CCR scenario family of~\cite{EuroNCAP}), together with one state inside the terminal region used as a sanity check; Table~\ref{tab:scenarios} lists them. The scenarios are specified by the ego's situation at time zero, in continuous coordinates, and each resolves to the cell of the \code{medium\_tight} grid whose centre is the stated state; the resolved identifiers are functions of the partition fingerprint alone. The action column records the controller decision at the cell centre under the logic of Section~\ref{sec:cs:sys}; the scenario names describe the staging of the encounter, not that decision. In the closed-loop encoding each scenario state additionally carries a dedicated state label, and the region labels of Section~\ref{sec:cs:sys} are carried by both encodings, so that scenarios and regions are addressable by the verifier without external state identifiers.
-	
-	\begin{table}[h]
-		\centering
-		\begin{tabular}{lllr}
-			\toprule
-			Scenario & $(g, \vego, \vlead)$ & Action & State id \\
-			\midrule
-			Safe\_Cruising & $(100,\ 15,\ 0)$ & coast & 1967740 \\
-			Warning\_Brake & $(30,\ 7,\ 0)$ & coast & 591934 \\
-			Emergency\_Brake & $(10,\ 10,\ 0)$ & brake & 202240 \\
-			Imminent\_Collision & $(5,\ 30,\ 0)$ & emergency & 117175 \\
-			Post\_Collision & $(0,\ 0,\ 0)$ & (terminal region) & 10 \\
-			\bottomrule
-		\end{tabular}
-		\caption{Scenario states on the \code{medium\_tight} grid under the \texttt{industry} controller. Post\_Collision lies inside the terminal region, so its bounded-reachability value must be exactly $1$; it is verified as an end-to-end sanity check of the emitted model rather than as a scenario of interest.}
-		\label{tab:scenarios}
-	\end{table}
-	
-	\paragraph{Verification.}
-	For each non-absorbing scenario state of Table~\ref{tab:scenarios} we compute the bounded-reachability interval $[P_{\min}, P_{\max}]$ for reaching a crash within a horizon of $N = 100$ control periods ($10$\,s at $\dt = 0.1$\,s), expressed against the closed-loop encoding as \code{F<=100 "crash"}. Robust verification is performed with Storm~1.13.0~\cite{Storm} (official container build, Z3 backend), which recognises the encoding as an interval MDP and applies robust value iteration under the worst-case (for $P_{\max}$) and best-case (for $P_{\min}$) resolution of the intervals. On the production artifact Storm constructs the sparse model in approximately $768$\,s; the constructed model has $1{,}977{,}682$ states, one choice per state, confirming the closed-loop structure of~\eqref{eq:collapse}, and $307{,}323{,}579$ interval transitions. One value iteration computes the value at every state simultaneously, so all properties of one resolution are evaluated in a single invocation that parses the model once; individual scenario states and whole regions are then read off with property filters over the state labels, for example
-	\begin{center}
-		\code{filter(max, Pmax=?\ [ F<=100 "crash" ], "nominal")}.
-	\end{center}
-	A filtered maximum over a region label is the largest worst-case value over every start state carrying the label. Over \texttt{nominal} it is the statement \emph{starting anywhere with no need to brake, the probability of a crash within $10$\,s is at most the reported value}; the corresponding filtered minimum under the best-case resolution completes the bracket. The same properties over \texttt{braking} and \texttt{emergency} are statements about the warning region and the emergency region respectively, in the sense fixed in Section~\ref{sec:cs:sys}. The Post\_Collision filter is the sanity check, required to return exactly $1$. The maximise batch completed in $10{,}115.606$\,s of wall-clock time with a peak memory of $37{,}515$\,MB, as reported by the checker's own resource measurement; the minimise batch completed in $5{,}923.478$\,s at a peak of $37{,}518$\,MB.
-	\paragraph{Results.}
-	Table~\ref{tab:results} reports the campaign. Three observations follow. First, the sanity check passes: the Post\_Collision state, inside the terminal region, returns exactly $1$. Second, the Imminent\_Collision bracket is $[1, 1]$: every transition distribution consistent with the certified intervals reaches a crash within the horizon, so by the argument of Section~\ref{sec:abs:sound} the modelled system crashes from that state with probability exactly $1$. The result is physically expected: the scenario closes at $30$\,m/s over a $5$\,m gap, while the strongest response the plant can realise, the emergency action through the actuator gain of~\eqref{eq:lag}, has a stopping distance of roughly $92$\,m. Third, every other bracket is $[0, 1]$, the vacuous interval, and this is the saturation anticipated by the displacement-budget analysis of Section~\ref{sec:abs:budget}: the intervals admit a drift of up to one gap cell, $1$\,m, per period, so over $100$ periods the budget spans the entire $100$\,m gap axis, letting the worst-case resolution reach the crash wall from every reported start state and the best-case resolution avoid it from every reported start state except Imminent\_Collision. The saturated brackets are sound and carry information about the abstraction rather than the system: at this resolution, the ten-second horizon exceeds what the intervals can decide. Two experiments follow directly: computing the brackets as functions of the step bound, which locates the largest horizon this resolution decides (Section~\ref{sec:cs:horizon}), and refining the grid over a reduced window (Section~\ref{sec:cs:extrafine}).
-	
-	\begin{table}[h]
-		\centering
-		\begin{tabular}{llcc}
-			\toprule
-			Start set & Kind & $P_{\min}$ & $P_{\max}$ \\
-			\midrule
-			Safe\_Cruising & scenario state & $0$ & $1$ \\
-			Warning\_Brake & scenario state & $0$ & $1$ \\
-			Emergency\_Brake & scenario state & $0$ & $1$ \\
-			Imminent\_Collision & scenario state & $1$ & $1$ \\
-			Post\_Collision & sanity check & --- & $1$ \\
-			\texttt{nominal} & region & $0$ & $1$ \\
-			\texttt{braking} (warning region) & region & $0$ & $1$ \\
-			\texttt{emergency} (emergency region) & region & $0$ & $1$ \\
-			\bottomrule
-		\end{tabular}
-		\caption{Bounded-reachability results for \code{F<=100 "crash"} ($10$\,s at $\dt = 0.1$\,s) on the certified closed-loop encoding. Scenario rows report the bracket at the single labelled state. Region rows report the envelope over the region: the smallest best-case value and the largest worst-case value over every start state carrying the label. Post\_Collision is the sanity check of Table~\ref{tab:scenarios}, evaluated under the worst-case resolution only. Values are exactly as reported by the checker. Provenance: partition fingerprint \code{3672963e58eb75b5}, code revision \code{3b9f3e9}, containment run identity and equivalence certificate of this section.}
-		\label{tab:results}
-	\end{table}
-	\subsection{Horizon-resolved verification on the production grid}
-	\label{sec:cs:horizon}
-	
-	The saturation of Table~\ref{tab:results} is horizon-dependent, so we query the same certified model at a ladder of step bounds, the \emph{horizon rungs}
+	\paragraph{The controller.}
+	The controller commands one of three accelerations,
 	\begin{equation}
-		k \;\in\; \{5,\ 10,\ 15,\ 20,\ 25,\ 30,\ 40,\ 50,\ 75\};
-		\label{eq:rungs}
+		U \;=\; \{\,a_0 = 0,\; a_1 = -4,\; a_2 = -9.8\,\}\ \text{m/s}^2,
+		\label{eq:actions}
 	\end{equation}
-	\emph{rung spacing} denotes the difference between successive queried bounds. Each rung is one property \code{F<=k "crash"} against the certified closed-loop encoding of Section~\ref{sec:cs:exp}; one Storm invocation evaluates a batch of rungs after constructing the model once.
+	where $a_0$, $a_1$, and $a_2$ are named \emph{coast}, \emph{brake}, and \emph{emergency}. It decides through two quantities derived from the state,
+	\begin{equation}
+		v_{\text{rel}} \;=\; \vego - \vlead, \qquad
+		\mathrm{TTC} \;=\;
+		\begin{cases}
+			g / v_{\text{rel}} & v_{\text{rel}} > 0.1,\\
+			\infty & \text{otherwise},
+		\end{cases}
+		\label{eq:vreltcc}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $v_{\text{rel}}$ is the closing speed (m/s);
+		\item $\mathrm{TTC}$ is the time to collision (s), unbounded below a closing speed of $0.1$\,m/s.
+	\end{itemize}
+	The decision is
+	\begin{equation}
+		a \;=\;
+		\begin{cases}
+			a_2 & \text{if } v_{\text{rel}} < 5 \text{ and } g < 2, \ \text{ or } v_{\text{rel}} \ge 5 \text{ and } \mathrm{TTC} < 1.0,\\
+			a_1 & \text{if } v_{\text{rel}} < 5 \text{ and } 2 \le g < 6, \ \text{ or } v_{\text{rel}} \ge 5 \text{ and } 1.0 \le \mathrm{TTC} < 1.6,\\
+			a_0 & \text{otherwise},
+		\end{cases}
+		\label{eq:controller}
+	\end{equation}
+	where $g$ is in metres, $v_{\text{rel}}$ in m/s, and $\mathrm{TTC}$ in seconds. The thresholds and decelerations are taken from the Euro NCAP AEB car-to-car test protocol~\cite{EuroNCAP}. The controller is deterministic and memoryless, deciding from the current state alone.
 	
-	Table~\ref{tab:frontier} reports the frontier. Three findings. First, $P_{\max}$ transitions from $0$ to $1$ within a single rung for every start set at this spacing, so the decidable horizon is located to one rung. Second, $P_{\min} = 0$ at all $36$ start-set and rung combinations, as the structural analysis of Section~\ref{sec:cs:exp} predicts; the zero lower bounds are horizon-resolved, not an artefact of the ten-second query. Third, the ordering of the crossings follows the distance to the terminal region, consistent with the budget rule of Section~\ref{sec:abs:budget}.
+	\paragraph{Formal classification.}
+	The abstraction of Section~\ref{sec:abs} is defined for a discrete-time stochastic control system~\cite[Sec.~3]{Soudjani2013}. Its state moves in a continuous space, in discrete time steps, under a finite set of inputs, with the next state drawn from a distribution that depends on the current state and input,
+	\begin{equation}
+		\Sigma \;=\; (\mathcal{X},\, U,\, T_x),
+		\label{eq:dtscs}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $\mathcal{X}$ is the continuous state space;
+		\item $U$ is the finite set of inputs;
+		\item $T_x$ is the transition kernel, giving for each state and input the distribution of the next state.
+	\end{itemize}
+	Table~\ref{tab:instance} instantiates the triple for the AEBS.
 	
-	\begin{table}[h]
-		\centering
-		\begin{tabular}{lcc}
-			\toprule
-			Start set & last rung with $P_{\max} = 0$ & first rung with $P_{\max} = 1$ \\
-			\midrule
-			Emergency\_Brake & $5$ & $10$ \\
-			Warning\_Brake & $15$ & $20$ \\
-			Safe\_Cruising & $30$ & $40$ \\
-			\texttt{nominal} (region) & $5$ & $10$ \\
-			\bottomrule
-		\end{tabular}
-		\caption{Horizon-resolved frontier on the production grid (\code{medium\_tight}), rungs as in~\eqref{eq:rungs}. Every measured transition is $0 \to 1$ within one rung; no intermediate value was observed at this spacing. $P_{\min} = 0$ at all $36$ combinations. Imminent\_Collision is $[1,1]$ from the first rung onwards and is omitted. Provenance as in Table~\ref{tab:results}.}
-		\label{tab:frontier}
-	\end{table}
-	
-	Provenance and cost. The maximise batch terminated early after $21$ of $36$ properties; the three affected cells (Safe\_Cruising at $k \in \{40, 50, 75\}$) were recovered by a separate invocation, and every value in Table~\ref{tab:frontier} has a checker log line. $P_{\max}$ cells above a measured value of $1$ are implied by monotonicity of $P_{\max}$ in $k$ and were not re-run. Model construction from the direct encoding costs approximately $710$\,s per invocation; per-property checking time grows approximately linearly in $k$, from $65$\,s at $k = 5$ to $787$\,s at $k = 75$. The minimise batch ($36$ properties) completed in $7{,}926.832$\,s at a peak of $37{,}516$\,MB; the recovery invocation completed in $2{,}229.7$\,s at a peak of $37{,}514$\,MB.
-	
-	The frontier sharpens the reading of Table~\ref{tab:results}: the production resolution decides Warning\_Brake safety to $1.5$\,s and Safe\_Cruising safety to $3$\,s, and returns no fractional value anywhere. Locating fractional brackets requires finer resolution; the next two subsections report where and how.
-	
-	\subsection{Resolution sweep}
-	\label{sec:cs:sweep}
-	
-	Four exploratory grids isolate the effect of resolution. All use the kernel, controller, and lead of Section~\ref{sec:cs:exp} over a reduced window, $g \in [0, 100]$, $\vego \in [0, 16]$, $\vlead \in [-1, 3]$; Imminent\_Collision lies outside this window by design, its bracket being already decided as $[1,1]$ on the production grid. Each sweep grid passed the file-against-file equivalence check of Section~\ref{sec:cs:exp} before verification. The sweep grids carry \emph{no} containment certificate: their measurements are methodology evidence for the rules of Section~\ref{sec:abs:budget}, and only the two certified configurations ship results.
-	
-	\begin{table}[h]
+	\begin{table}[H]
 		\centering
 		\begin{tabular}{lll}
 			\toprule
-			Preset & $(r_g,\ r_{\vego},\ r_{\vlead})$ & Role \\
+			Component & In~\eqref{eq:dtscs} & For the AEBS \\
 			\midrule
-			\code{r100} & $(1.0,\ 0.5,\ 0.1)$ & production resolution, reduced window \\
-			\code{r050} & $(0.5,\ 0.5,\ 0.1)$ & gap halved \\
-			\code{r025} & $(0.25,\ 0.5,\ 0.1)$ & gap quartered \\
-			\code{r050v} & $(0.5,\ 0.25,\ 0.1)$ & ego halved (control-visibility probe) \\
+			State space & $\mathcal{X}$, continuous & $\mathcal{S}$ of~\eqref{eq:statespace} \\
+			Inputs & $U$, finite & $U$ of~\eqref{eq:actions} \\
+			Kernel & $T_x$ & the kernel~\eqref{eq:kernel} of Section~\ref{sec:cs:model} \\
 			\bottomrule
 		\end{tabular}
-		\caption{Sweep presets. Window $g \in [0, 100]$, $\vego \in [0, 16]$, $\vlead \in [-1, 3]$ throughout; equivalence-checked, not containment-certified.}
-		\label{tab:sweeps}
+		\caption{The AEBS as a discrete-time stochastic control system.}
+		\label{tab:instance}
 	\end{table}
 	
-	Three measurements follow.
-	\begin{enumerate}
-		\item \emph{Crossings move outward with gap resolution.} From \code{r100} to \code{r050}: Warning\_Brake $15 \to 20$, Safe\_Cruising $40 \to 50$, \texttt{nominal} $5 \to 10$. From \code{r050} to \code{r025} the crossings are unchanged at $5$-step rung spacing. The first fractional certificate of the study appears here: $P_{\max} = 0.9846419946$ for Safe\_Cruising at $k = 50$ on \code{r050}.
-		\item \emph{Finer rungs sharpen the frontier.} At $1$--$2$ step rung spacing, Safe\_Cruising transitions between $48$ and $52$ on \code{r050} and between $55$ and $60$ on \code{r025}; Warning\_Brake transitions between $21$ and $23$ on \code{r050} and between $23$ and $25$ on \code{r025}, with $P_{\max} = 0.9999807082$ at $k = 25$. The apparent one-rung walls of Table~\ref{tab:frontier} are a property of the rung spacing, and gap refinement pays with diminishing returns.
-		\item \emph{The ego probe confirms the control-visibility rule.} On \code{r050v}, with $r_{\vego} = 0.25$ below the emergency threshold of $0.49$\,m/s, Safe\_Cruising returns the fractional certificate $P_{\max} = 0.999865419$ at $k = 52$, a rung at which \code{r050} ($r_{\vego} = 0.5$, both thresholds failed) has already saturated at $1$. Finer ego resolution makes the emergency response visible to the grid and removes part of the worst case available at the coarser ego resolution.
-	\end{enumerate}
-	The linear budget~\eqref{eq:budget} matches the measured crossings at five crossings across the two gap-resolution grids; Emergency\_Brake transitions later than predicted, so the heuristic errs on the conservative side. The diagnostic $K = 6.276171$ of Section~\ref{sec:cs:exp} recurs identically on \code{r050v}, at a different worst state, confirming its spatial uniformity and grid-independence for this kernel.
+	\subsection{Modelling choices}
+	\label{sec:cs:model}
 	
-	\subsection{A second certified configuration: the Following window}
-	\label{sec:cs:extrafine}
+	This subsection fixes the model of the plant. It gives the one-step dynamics, the noise, the transition kernel they define, the check that the assumptions of Section~\ref{sec:abs} hold, the labels and the terminal region, and the two grids on which the plant is abstracted.
 	
-	The production grid decides frontiers but returns no fractional value (Section~\ref{sec:cs:horizon}), and the sweeps show that fractional certificates appear when the resolution rules of Section~\ref{sec:abs:budget} are satisfied (Section~\ref{sec:cs:sweep}). This subsection applies all four rules at once: a certified configuration at resolution $0.1$ in every dimension, over a window sized to the cell budget, on a scenario family chosen to produce scenario-discriminating fractional brackets.
+	\paragraph{One-step dynamics.}
+	Given the state $s$ and the commanded acceleration $a$, the deterministic part of the next state is
+	\begin{align}
+		a_{\text{ego}} &\;=\; \alpha \cdot a, \label{eq:lag}\\
+		\vego' &\;=\; \max\!\bigl\{0,\; \vego + a_{\text{ego}} \cdot \dt\bigr\}, \label{eq:vego}\\
+		\bar{v}_{\text{lead}}' &\;=\; \max\!\bigl\{0,\; \vlead\bigr\}, \label{eq:vlead}\\
+		g' &\;=\; g + \bigl(\bar{v}_{\text{lead}}' - \vego'\bigr) \cdot \dt, \label{eq:gap}
+	\end{align}
+	where
+	\begin{itemize}
+		\item the prime marks values at the next step;
+		\item $\dt = 0.1$\,s is the duration of one control period, and one step of the model of Section~\ref{sec:abs} is one control period;
+		\item $\alpha = 0.5$ is a static actuator gain, a modelling choice standing in for the delay with which the vehicle's actuators respond;
+		\item $\bar{v}_{\text{lead}}'$ is the lead's predicted next velocity, its current velocity floored at zero, that is, a lead predicted to hold its speed; the lead's motion is an input to the model, not a controlled quantity, and no controller is assumed for the lead.
+	\end{itemize}
 	
-	\paragraph{Locating the family: nominal margin search.}
-	A noise-free simulation sweep of the closed loop locates the crash boundary: ego speeds $\{12, 14, 16\}$\,m/s behind a lead held at $10$\,m/s, starting gaps $4$ to $26$\,m in $0.5$\,m steps, $60$\,s per run, $135$ runs. Every run settles into steady following; none crashes. The worst minimum gap per ego row is $3.24$, $1.66$, and $1.12$\,m, and the steady settle gaps are approximately $5.3$, $3.6$, and $3.1$\,m. Two conclusions. The nominal closed loop is collision-free across this envelope, so any certified crash probability from these start states is noise-induced. And start states at small margins above the settle gap are the natural carriers of fractional probabilities: close enough for lead-velocity noise to matter, far enough that a crash is not forced.
+	\paragraph{Noise.}
+	The lead's speed changes randomly from one control period to the next, and this is the only randomness in the plant.
+	\begin{assumption}[Lead-vehicle uncertainty]
+		\label{ass:lead}
+		In each control period the lead vehicle's acceleration is a Gaussian random variable with mean zero and standard deviation $\sigmaa$, drawn independently of every other control period. Given the state, the commanded acceleration, and that draw, the next state is determined.
+	\end{assumption}
+	The noise constants are
+	\begin{align}
+		\sigmaa &\;=\; \sqrt{\sigma_{\text{plant}}^2 + \sigma_{\text{lead}}^2} \;=\; \sqrt{0.05^2 + 2.0^2} \;\approx\; 2.0006\ \text{m/s}^2, \label{eq:sigmaa}\\
+		\sigmav &\;=\; \sigmaa \cdot \dt \;\approx\; 0.2001\ \text{m/s}, \qquad
+		\vlead' \;\sim\; \Norm\bigl(\,\bar{v}_{\text{lead}}',\; \sigmav^2\,\bigr), \label{eq:sigmav}
+	\end{align}
+	where
+	\begin{itemize}
+		\item $\sigma_{\text{lead}} = 2.0$\,m/s\textsuperscript{2} is the lead-acceleration noise, chosen so that the standard deviation of the lead's speed change per control period is $0.2$\,m/s;
+		\item $\sigma_{\text{plant}} = 0.05$\,m/s\textsuperscript{2} is a small allowance for unmodelled plant disturbance;
+		\item $\sigmav$ is the resulting standard deviation of the lead velocity after one control period, and $\vlead'$ is the lead velocity at the next step, distributed around the prediction $\bar{v}_{\text{lead}}'$ of~\eqref{eq:vlead}.
+	\end{itemize}
+	Both values are modelling choices, not calibrated against measured driving data.
 	
-	\paragraph{Scenario family.}
-	Five start states at ego $14$\,m/s behind a lead at $10$\,m/s, graded by starting gap (Table~\ref{tab:following}). The closing speed is $4$\,m/s, below the controller's $5$\,m/s branch threshold, so the first decision is distance-based: Following\_Critical starts inside the braking band ($g < 6$) and the other four start coasting. Following\_Critical also lies inside the warning region of Section~\ref{sec:cs:sys}.
+	\paragraph{The gap noise.}
+	The lead velocity enters the gap update, so the next gap inherits noise of standard deviation
+	\begin{equation}
+		\sigma_g \;=\; \sigmav \cdot \dt \;\approx\; 0.02\ \text{m}.
+		\label{eq:gapnoise}
+	\end{equation}
+	where $\sigma_g$ is the standard deviation of the next gap. If the next gap were computed from the realised lead velocity, the gap and the lead velocity would be jointly random, and the kernel would no longer split into one factor per dimension as \hyperref[ass:sysclass]{Assumption~(i)} requires. Equation~\eqref{eq:gap} therefore computes the next gap from the predicted lead velocity, which makes the gap deterministic; the noise this drops is $0.02$\,m per control period, well below every gap resolution used (Table~\ref{tab:grids}).
 	
-	\begin{table}[h]
+	\paragraph{The kernel.}
+	The next state is
+	\begin{equation}
+		s' \;=\; (g',\ \vego',\ \vlead'),
+		\label{eq:kernel}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $s'$ is the next state, and its distribution given the state $s$ and the action $a$ is the transition kernel $T_x$ of~\eqref{eq:dtscs};
+		\item $g'$ and $\vego'$ are the deterministic values of~\eqref{eq:vego} and~\eqref{eq:gap};
+		\item $\vlead'$ is the lead velocity drawn from the Gaussian of~\eqref{eq:sigmav} around the prediction $\bar{v}_{\text{lead}}'$.
+	\end{itemize}
+	All the randomness of $T_x$ is in $\vlead'$, so the probability of moving from $s$ under $a$ into a cell is the probability that $\vlead'$ falls in that cell's $\vlead$ range if the cell contains $(g', \vego')$, and zero otherwise. This is the factorised kernel of \hyperref[ass:sysclass]{Assumption~(i)}, deterministic in $g$ and $\vego$ and Gaussian in $\vlead$, and it is the kernel against which the containment certificate of Section~\ref{sec:abs:sound} is evaluated. The one-step map~\eqref{eq:vego}--\eqref{eq:gap} is continuous and monotone in each state coordinate, as \hyperref[ass:sysclass]{Assumptions~(ii) and~(iii)} require, since it composes linear maps with the floor at zero, $\max\{0, x\}$.
+	
+	\paragraph{Labels and terminal region.}
+	The labels of Section~\ref{sec:abs:partition}, names attached to states by predicates on the continuous state, are here predicates over $g$ and $\mathrm{TTC}$ of~\eqref{eq:vreltcc}, evaluated at cell centres; Table~\ref{tab:labels} lists them. The \texttt{warning} and \texttt{critical} predicates use the warning and emergency thresholds of~\cite{EuroNCAP}, each triggered by distance or by time to collision. The regions they define are fixed by these thresholds alone; they are not the states in which the controller~\eqref{eq:controller} brakes. The terminal region of Section~\ref{sec:abs:partition} is the region of \texttt{crash}, the \emph{crash region}, whose outcome is decided at entry.
+	
+	\begin{table}[H]
 		\centering
-		\begin{tabular}{lllr}
+		\begin{tabular}{ll}
 			\toprule
-			Scenario & $(g, \vego, \vlead)$ & First action & State id \\
+			Label & Predicate at the cell centre \\
 			\midrule
-			Following\_Critical & $(5,\ 14,\ 10)$ & brake & 621200 \\
-			Following\_Tight & $(6,\ 14,\ 10)$ & coast & 743410 \\
-			Following\_Near & $(8,\ 14,\ 10)$ & coast & 987830 \\
-			Following\_Mid & $(10,\ 14,\ 10)$ & coast & 1232250 \\
-			Following\_Wide & $(12,\ 14,\ 10)$ & coast & 1476670 \\
+			\texttt{crash} & $g \le 0$ \\
+			\texttt{warning} & $g < 10$\,m or $\mathrm{TTC} < 2.6$\,s \\
+			\texttt{critical} & $g < 2$\,m or $\mathrm{TTC} < 1.0$\,s \\
+			\texttt{clear} & $g > 0$ and not \texttt{warning} \\
 			\bottomrule
 		\end{tabular}
-		\caption{The Following family on the \code{extra\_fine} grid. All states share ego $14$\,m/s and lead $10$\,m/s; the starting gap is the single graded variable. State identifiers are functions of the partition fingerprint below.}
+		\caption{The labels used in the results.}
+		\label{tab:labels}
+	\end{table}
+	
+	\paragraph{The grids.}
+	The plant is abstracted twice, on the two grids of Table~\ref{tab:grids}, named after their resolution and their role. The medium production grid covers the whole state space and carries the scenarios of Table~\ref{tab:scenarios}. The extra-fine Following grid covers a car-following window at resolution $0.1$ in every dimension and carries the car-following scenarios of Table~\ref{tab:following}. Mass that leaves a grid is routed to the safe sink of Section~\ref{sec:abs:partition}; mass beyond the $\vlead$ range is truncated and renormalised within the range~\eqref{eq:trunc}.
+	
+	\begin{table}[H]
+		\centering
+		\small
+		\begin{tabular}{lcc}
+			\toprule
+			& Medium production grid & Extra-fine Following grid \\
+			\midrule
+			Bounds $(g, \vego, \vlead)$ & $[0,100]\times[0,30]\times[-1,31]$ & $[0,16]\times[4,16]\times[5,15]$ \\
+			Resolution $(r_g, r_{\vego}, r_{\vlead})$ & $(1.0,\ 0.5,\ 0.1)$ & $(0.1,\ 0.1,\ 0.1)$ \\
+			Cells per dimension $(n_g, n_{\vego}, n_{\vlead})$ & $(101,\ 61,\ 321)$ & $(161,\ 121,\ 101)$ \\
+			Cells $M$ & $1{,}977{,}681$ & $1{,}967{,}581$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The two grids. Kernel, controller, lead prediction, and truncation policy are identical on both.}
+		\label{tab:grids}
+	\end{table}
+	
+	Control visibility means that one control period of braking must move the
+	ego velocity by more than one cell, or the grid cannot see the braking;
+	the noise is resolved when its standard deviation per control period is at
+	least one cell wide. Table~\ref{tab:considerations} sets the ego-velocity
+	change of each braking action, produced through the gain $\alpha$
+	of~\eqref{eq:lag}, and the lead-velocity noise of~\eqref{eq:sigmav}
+	against the cell widths of the two grids. The medium production grid sees
+	neither braking action and the extra-fine Following grid sees both; both
+	grids resolve the noise.
+	
+	\begin{table}[H]
+		\centering
+		\small
+		\begin{tabular}{lccc}
+			\toprule
+			Consideration & Per control period (m/s) &
+			\multicolumn{2}{c}{Cell width (m/s)} \\
+			\cmidrule(lr){3-4}
+			& & Medium production & Extra-fine Following \\
+			\midrule
+			Brake, ego velocity & $0.2$ & $0.5$ & $0.1$ \\
+			Emergency, ego velocity & $0.49$ & $0.5$ & $0.1$ \\
+			Noise, lead velocity & $0.2$ & $0.1$ & $0.1$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The considerations of Section~\ref{sec:abs:budget} on the two
+			grids, each change or noise per control period set against the cell
+			width of the dimension it moves.}
+		\label{tab:considerations}
+	\end{table}
+	
+	The crossing horizon~\eqref{eq:budget} instantiates for the AEBS as
+	\begin{equation}
+		k_{\text{cross}} \;\approx\; \frac{g_0}{\vego \cdot \dt \;+\; r_g},
+		\label{eq:budgetaebs}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $g_0$ is the starting gap, how far the ego starts from a crash;
+		\item $\vego \cdot \dt$ is the most the gap can physically shrink in one control period from that state, since the lead is never predicted to reverse and no action speeds the ego up;
+		\item $r_g$ is the gap resolution, the one cell of drift per control period that the intervals allow (Section~\ref{sec:abs:budget}).
+	\end{itemize}
+	
+	\subsection{Abstraction results}
+	\label{sec:cs:exp}
+	
+	This subsection reports what the abstraction produced on the two grids of Table~\ref{tab:grids}. It gives the IMDPs, their soundness certificates, and the form in which they are handed to the verifier together with what the verifier is asked.
+	
+	\paragraph{The IMDPs.}
+	Table~\ref{tab:absres} summarises the two IMDPs. Both were generated on a departmental cluster node with $64$ cores and $503$\,GB of memory, the production grid parallelised over $63$ worker processes.
+	
+	\begin{table}[H]
+		\centering
+		\small
+		\begin{tabular}{lcc}
+			\toprule
+			& Medium production grid & Extra-fine Following grid \\
+			\midrule
+			States (the grid cells and one safe sink) & $1{,}977{,}682$ & $1{,}967{,}582$ \\
+			Transitions & $307{,}323{,}579$ & $311{,}491{,}148$ \\
+			Generation time & approximately $43$\,min & --- \\
+			Size of the file handed to the verifier & $10.2$\,GiB & $10.4$\,GiB \\
+			\bottomrule
+		\end{tabular}
+		\caption{The two IMDPs. A dash marks a quantity not recorded.}
+		\label{tab:absres}
+	\end{table}
+	
+	\paragraph{Soundness certificates.}
+	The containment test of Section~\ref{sec:abs:sound} was run over every cell of both grids under all three actions, sampling $27$ states per cell, and counting a probability as outside its interval only if it fell outside by more than $10^{-7}$, an allowance for floating-point error. Neither run found a violation, so by Section~\ref{sec:abs:sound} both IMDPs are certified sound over-approximations of the kernel~\eqref{eq:kernel}.
+	
+	\paragraph{Handing the IMDPs to the verifier.}
+	The verifier is Storm~\cite{Storm}. A model of this size, about two million states and three hundred million transitions, exceeded the memory of the cluster node when written in the PRISM language and parsed. Each IMDP is therefore written in Storm's explicit format (DRN), a direct list of states, transitions, and labels. For the medium production grid the PRISM file was $28.9$\,GiB and the explicit file $10.2$\,GiB. The explicit file carries the closed loop, one action per state, the controller's decision~\eqref{eq:controller} at the centre of that state's cell. For each query the verifier computes two numbers. For $P_{\max}$ it plays the adversary, choosing at every step, among the transition probabilities the intervals admit, those that make a crash most likely; for $P_{\min}$ it chooses those that make a crash least likely. The pair $[P_{\min}, P_{\max}]$ is the bracket of Section~\ref{sec:bg:robust}, and the crash probability of the modelled system lies inside it (Section~\ref{sec:abs:sound}). From every start state not already certain to crash, the lowest crash probability the model allows is $0$, because the one cell of freedom per control period that the intervals give the verifier, the drift of Section~\ref{sec:abs:budget}, is enough to avoid the crash region altogether. Every bracket therefore carries its information in $P_{\max}$, and the results report $P_{\max}$.
+	
+	\subsection{Verification results}
+	\label{sec:cs:ver}
+	
+	The certified IMDPs are checked for the probability of a crash within a bounded number of control periods, from named start states and from the labelled regions of Table~\ref{tab:labels}. This subsection gives the query, the results on the medium production grid, the measurements that fixed the extra-fine resolution, the results on the extra-fine Following grid with a simulation that corroborates them, and the cost.
+	
+	\paragraph{The query.}
+	Every query has the form
+	\begin{center}
+		\code{F<=k "crash"},
+	\end{center}
+	where $k$ is the horizon, the number of control periods within which a crash is asked about. Storm~1.13.0 reads the file as an interval MDP and applies robust value iteration~\cite{Storm}; each query is one pass over the whole model, and the start state or region it reports is selected by its label.
+	
+	\paragraph{Results on the medium production grid.}
+	\label{sec:cs:horizon}
+	Table~\ref{tab:scenarios} lists the start states queried on the medium production grid, four along a rear-end approach to a stationary lead, the Car-to-Car Rear stationary scenario of~\cite{EuroNCAP}, and one inside the crash region.
+	
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{ll}
+			\toprule
+			Scenario & Start state $(g, \vego, \vlead)$ \\
+			\midrule
+			Safe Cruising & $(100,\ 15,\ 0)$ \\
+			Warning Brake & $(30,\ 7,\ 0)$ \\
+			Emergency Brake & $(10,\ 10,\ 0)$ \\
+			Imminent Collision & $(5,\ 30,\ 0)$ \\
+			Post Collision & $(0,\ 0,\ 0)$, inside the crash region \\
+			\bottomrule
+		\end{tabular}
+		\caption{Scenarios on the medium production grid.}
+		\label{tab:scenarios}
+	\end{table}
+	
+	At horizon $100$, ten seconds, Post Collision and Imminent Collision return $[1, 1]$, a start inside the crash region and a start that cannot stop in time. Every other scenario and every region of Table~\ref{tab:labels} returns the trivial bracket $[0, 1]$, which rules nothing out. The intervals allow one gap cell of drift per control period, and ten seconds of drift cover the whole gap range (Section~\ref{sec:abs:budget}). The same grid is queried at the horizons
+	\begin{equation}
+		k \;\in\; \{5,\ 10,\ 15,\ 20,\ 25,\ 30,\ 40,\ 50,\ 75\},
+		\label{eq:horizons}
+	\end{equation}
+	where $k$ ranges over the queried horizons, five control periods apart up to $30$ and wider beyond; Table~\ref{tab:frontier} gives the result. For every scenario $P_{\max}$ is $0$ up to one queried horizon and $1$ from the next, so no fractional value appears between the horizons queried, and $P_{\min}$ is $0$ for these scenarios at every horizon. The horizons up to which the worst-case crash probability is certified zero are ordered by starting gap.
+	
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{lcc}
+			\toprule
+			Scenario & $P_{\max} = 0$ up to & $P_{\max} = 1$ from \\
+			\midrule
+			Emergency Brake & $k = 5$ ($0.5$\,s) & $k = 10$ ($1.0$\,s) \\
+			Warning Brake & $k = 15$ ($1.5$\,s) & $k = 20$ ($2.0$\,s) \\
+			Safe Cruising & $k = 30$ ($3.0$\,s) & $k = 40$ ($4.0$\,s) \\
+			\bottomrule
+		\end{tabular}
+		\caption{Worst-case crash probability on the medium production grid at the horizons of~\eqref{eq:horizons}. No horizon between the two columns was queried. $P_{\min}$ is $0$ for these scenarios at every horizon. Imminent Collision and Post Collision are omitted.}
+		\label{tab:frontier}
+	\end{table}
+	
+	\paragraph{Fixing the extra-fine resolution.}
+	\label{sec:cs:sweep}
+	The medium production grid locates the horizon at which each result flips from $0$ to $1$ and returns no value in between. Finding the resolution that does return values in between took several experiments on a reduced window, each halving the cells of one dimension while holding the others at the medium production resolution, to find the dimension that needs the most granularity. That dimension is the ego velocity. One control period of emergency braking changes the ego velocity by $0.49$\,m/s (Table~\ref{tab:considerations}), so with ego cells of $0.5$\,m/s the grid cannot see the braking. Halving the ego cells to $0.25$\,m/s let it see the braking and returned a fractional worst-case crash probability, $0.999865419$ for Safe Cruising, at a horizon where the $0.5$\,m/s cells already return $1$. The extra-fine Following grid therefore uses $0.1$ in every dimension, finer than both braking changes of Table~\ref{tab:considerations}.
+	
+	The crossing horizon~\eqref{eq:budgetaebs} predicts the horizon at which $P_{\max}$ first leaves $0$; the measured crossing is the first queried horizon at which it does. The prediction ignores the controller's braking, so it is an estimate rather than a bound, and it agrees with the measurement. With gap cells of $1.0$\,m it predicts horizon $40$ and the measured crossing is $40$; with gap cells of $0.5$\,m it predicts $50$ and the measured crossing is $50$.
+	
+	
+	\paragraph{Results on the extra-fine Following grid.}
+	\label{sec:cs:extrafine}
+	Two things are needed for a fractional worst-case crash probability. The grid must be fine enough to see the braking and to keep the drift small, which the extra-fine resolution provides. And the start state must be one whose outcome is not decided by the physics alone, since a start state that certainly crashes or certainly stops returns $1$ or $0$ at any resolution. Close behind a stationary lead every start state is of the decided kind, the ego either stops in time or does not. Behind a moving lead the gap closes and reopens with the lead's noise, and the outcome can be probabilistic. The car-following scenarios therefore follow a lead at $10$\,m/s, under the same lead law as the medium production grid (a lead predicted to hold its speed) started at $10$\,m/s instead of $0$.
+	
+	A noise-free simulation of the closed loop runs one run of $60$\,s for each of the $135$ combinations of ego speed ($12$, $14$, or $16$\,m/s) and starting gap ($4$ to $26$\,m every $0.5$\,m) behind a lead held at $10$\,m/s. Every run settles into steady following and none crashes. Table~\ref{tab:settle} gives, per ego speed, the closest the ego came to the lead in any run and the gap at which it then follows steadily. Any certified crash probability from these start states is therefore due to the noise, and start states just above the steady-following gap are the ones at which it is fractional.
+	
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{lcc}
+			\toprule
+			Ego speed (m/s) & Closest approach over the $45$ runs (m) & Steady-following gap (m) \\
+			\midrule
+			$12$ & $3.24$ & approximately $5.3$ \\
+			$14$ & $1.66$ & approximately $3.6$ \\
+			$16$ & $1.12$ & approximately $3.1$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The noise-free simulation behind a lead at $10$\,m/s; each row aggregates the $45$ runs at that ego speed.}
+		\label{tab:settle}
+	\end{table}
+	
+	Table~\ref{tab:settle} is the noise-free physics, and the car-following scenarios of Table~\ref{tab:following} are placed against it. At ego $14$\,m/s the noise-free ego settles about $3.6$\,m behind the lead, so the scenarios start at ego $14$\,m/s, closing at $4$\,m/s, at gaps of $5$ to $12$\,m, from just above that settling gap outward. Without noise every one of them settles, so only the noise can cause a crash, and the closer the start the more likely it is to. The medium production grid contains the car-following start states too, but at its resolution it returns only $0$ or $1$ from them, and the scenarios of Table~\ref{tab:scenarios} lie outside the extra-fine window. Every result therefore comes from one named grid, the scenarios of Table~\ref{tab:scenarios} from the medium production grid and the car-following scenarios from the extra-fine Following grid.
+	
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{ll}
+			\toprule
+			Scenario & Start state $(g, \vego, \vlead)$ \\
+			\midrule
+			Following Critical & $(5,\ 14,\ 10)$ \\
+			Following Tight & $(6,\ 14,\ 10)$ \\
+			Following Near & $(8,\ 14,\ 10)$ \\
+			Following Mid & $(10,\ 14,\ 10)$ \\
+			Following Wide & $(12,\ 14,\ 10)$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The car-following scenarios on the extra-fine Following grid.}
 		\label{tab:following}
 	\end{table}
 	
-	\paragraph{Configuration.}
-	The \code{extra\_fine} preset instantiates the rules of Section~\ref{sec:abs:budget}: $r_{\vego} = 0.1$ passes both control-visibility thresholds ($0.2$ and $0.49$\,m/s), $\sigmav / r_{\vlead} \approx 2.0$ is unchanged, and the window is sized to the cell budget.
+	Table~\ref{tab:followingresults} reports $P_{\max}$ for the five car-following scenarios at the horizons queried from $10$ to $24$, every two control periods, the range over which the values move from $0$ to $1$; Figure~\ref{fig:followingcurves} draws the same values. At every queried horizon below $10$ every scenario returns $0$, at horizons $30$, $40$, $50$, and $60$ every scenario returns $1$, and $P_{\min}$ is $0$ for all five scenarios at every horizon queried.
 	
-	\begin{center}
-		\begin{tabular}{ll}
-			\toprule
-			\textbf{Parameter} & \textbf{Value} \\
-			\midrule
-			Grid resolution $(r_g, r_{\vego}, r_{\vlead})$ & $(0.1,\,0.1,\,0.1)$ \\
-			Bounds $(g, \vego, \vlead)$ & $[0,16]\times[4,16]\times[5,15]$ \\
-			Grid shape $(n_g, n_{\vego}, n_{\vlead})$ & $(161,\,121,\,101)$ \\
-			Number of cells $M$ & $1{,}967{,}581$ \\
-			Partition fingerprint & \code{8252bc93d8ad810a} \\
-			Code revision & \code{2ff1c85} \\
-			Kernel, controller, lead, tail policy & as in Section~\ref{sec:cs:exp} \\
-			\bottomrule
-		\end{tabular}
-	\end{center}
-	
-	The window trades coverage for resolution: the static-family scenarios of Table~\ref{tab:scenarios} lie outside it by design and continue to report from the production grid. The two configurations report jointly: the production grid decides the static family, and the Following window carries the fractional results below.
-	
-	\paragraph{Certificates.}
-	The containment test of Section~\ref{sec:abs:sound} visited all $1{,}967{,}581$ cells under all three actions and completed with zero violations and a worst recorded excess of $0$. The equivalence check of Section~\ref{sec:cs:exp} passed over $1{,}967{,}582$ states and $311{,}491{,}148$ transitions, every label included; the canonical hash \code{915b2f5c23372916f1f48ba83405db2a1824b25d1b69cc511e5a4d13ea44861c} was recorded identically for the composed modular model and the direct encoding. Generation completed in $2{,}596.24$\,s.
-	
-	\paragraph{Results.}
-	Table~\ref{tab:followingresults} and Figure~\ref{fig:followingcurves} report $P_{\max}$ for \code{F<=k "crash"} at rungs $k = 10$ to $24$ in steps of $2$; coarser rungs at $k \in \{30, 40, 50, 60\}$ return $1$ for all five scenarios. $P_{\min} = 0$ at all $44$ measured scenario-rung combinations, as the structural analysis of Section~\ref{sec:cs:exp} requires. Four findings.
-	\begin{enumerate}
-		\item \emph{Every scenario carries fractional certificates.} Each column contains at least one strictly fractional $P_{\max}$; the definition of done for this track, fractional and scenario-discriminating brackets, is met.
-		\item \emph{The ordering follows the starting gap in every cell.} At every rung, $P_{\max}(\text{Critical}) \ge P_{\max}(\text{Tight}) \ge P_{\max}(\text{Near}) \ge P_{\max}(\text{Mid}) \ge P_{\max}(\text{Wide})$, with strict inequality wherever the values are not both saturated.
-		\item \emph{Saturation staggers by one metre of gap.} The first rung with $P_{\max} = 1$ is $12, 14, 18, 20, 24$ across the five scenarios (Figure~\ref{fig:saturation}).
-		\item \emph{Transitions span roughly four rungs.} At $2$-step spacing each scenario passes from below $10^{-10}$ to $1$ over four to six rungs, resolving the one-rung walls of Table~\ref{tab:frontier} into curves.
-	\end{enumerate}
-	
-	\begin{table}[h]
+	\begin{table}[H]
 		\centering
 		\begin{tabular}{lccccc}
 			\toprule
@@ -2303,19 +2266,20 @@
 			$24$ & $1$ & $1$ & $1$ & $1$ & $1$ \\
 			\bottomrule
 		\end{tabular}
-		\caption{$P_{\max}$ for \code{F<=k "crash"} across the Following family on the certified \code{extra\_fine} encoding. Values rounded to four significant figures; the exact checker output is preserved in the artifact logs. $P_{\min} = 0$ at every measured combination. Provenance: partition fingerprint \code{8252bc93d8ad810a}, code revision \code{2ff1c85}, certificates of this section.}
+		\caption{$P_{\max}$ for \code{F<=k "crash"} across the car-following scenarios on the extra-fine Following grid, rounded to four significant figures. $P_{\min}$ is $0$ for all five scenarios at every measured horizon.}
 		\label{tab:followingresults}
 	\end{table}
 	
-	\begin{figure}[h]
+	\begin{figure}[H]
 		\centering
 		\begin{tikzpicture}
-			\begin{semilogyaxis}[
+			\begin{axis}[
 				width=0.88\textwidth, height=7.2cm,
-				xlabel={horizon rung $k$ (control periods of $0.1$\,s)},
-				ylabel={$P_{\max}$},
-				xmin=9, xmax=25, ymin=1e-30, ymax=8,
+				xlabel={horizon $k$ (control periods of $0.1$\,s)},
+				ylabel={worst-case crash probability $P_{\max}$},
+				xmin=9, xmax=25, ymin=0, ymax=1.05,
 				xtick={10,12,14,16,18,20,22,24},
+				ytick={0,0.25,0.5,0.75,1},
 				legend pos=south east, legend style={font=\scriptsize},
 				grid=both, grid style={gray!25},
 				cycle list name=color list]
@@ -2323,44 +2287,91 @@
 				\addlegendentry{Critical ($5$\,m)}
 				\addplot+[mark=square*] coordinates {(10,1.90329532e-12)(12,0.4890585366)(14,1)(16,1)(18,1)(20,1)(22,1)(24,1)};
 				\addlegendentry{Tight ($6$\,m)}
-				\addplot+[mark=triangle*] coordinates {(12,2.923025817e-15)(14,0.0001504356093)(16,0.9893959729)(18,1)(20,1)(22,1)(24,1)};
+				\addplot+[mark=triangle*] coordinates {(10,0)(12,2.923025817e-15)(14,0.0001504356093)(16,0.9893959729)(18,1)(20,1)(22,1)(24,1)};
 				\addlegendentry{Near ($8$\,m)}
-				\addplot+[mark=diamond*] coordinates {(14,6.379221313e-22)(16,1.834522015e-05)(18,0.239932871)(20,1)(22,1)(24,1)};
+				\addplot+[mark=diamond*] coordinates {(10,0)(12,0)(14,6.379221313e-22)(16,1.834522015e-05)(18,0.239932871)(20,1)(22,1)(24,1)};
 				\addlegendentry{Mid ($10$\,m)}
-				\addplot+[mark=pentagon*] coordinates {(16,4.951962645e-28)(18,7.815790461e-06)(20,0.2771274783)(22,0.9998060877)(24,1)};
+				\addplot+[mark=pentagon*] coordinates {(10,0)(12,0)(14,0)(16,4.951962645e-28)(18,7.815790461e-06)(20,0.2771274783)(22,0.9998060877)(24,1)};
 				\addlegendentry{Wide ($12$\,m)}
-			\end{semilogyaxis}
+			\end{axis}
 		\end{tikzpicture}
-		\caption{Worst-case crash probability against the horizon rung for the Following family, logarithmic vertical axis. Each point is one checker result on the certified \code{extra\_fine} encoding; rungs at which $P_{\max}$ is exactly $0$ cannot be drawn on a logarithmic axis and are omitted (Table~\ref{tab:followingresults} records them). The curves shift right with the starting gap without crossing.}
+		\caption{Worst-case crash probability against the horizon for the five car-following scenarios. A larger starting gap delays the rise from $0$ to $1$.}
 		\label{fig:followingcurves}
 	\end{figure}
 	
-	\begin{figure}[h]
+	Every scenario has a fractional $P_{\max}$ at some horizon. At any one horizon the five values are ordered by starting gap, largest at the smallest gap, so the certified worst case reproduces the physical ordering. The horizon at which the worst case becomes certain is
+	\begin{equation}
+		k_1 \;=\; \min\{\,k \;:\; P_{\max}(k) = 1\,\},
+		\label{eq:k1}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $P_{\max}(k)$ is the worst-case crash probability at horizon $k$;
+		\item $k_1$ is the smallest queried horizon at which it equals $1$, that is, the first horizon at which the worst case is certain to crash.
+	\end{itemize}
+	Table~\ref{tab:k1} gives $k_1$ per scenario. A straight line fitted to its five rows has a slope of $1.66$ control periods per metre of starting gap; each metre of starting gap defers certainty by $1.66$ control periods, that is, $0.60$\,m of starting gap per control period.
+	
+	\begin{table}[H]
 		\centering
-		\begin{tikzpicture}
-			\begin{axis}[
-				width=0.7\textwidth, height=6cm,
-				xlabel={starting gap $g_0$ (m)},
-				ylabel={first rung with $P_{\max} = 1$},
-				xmin=4, xmax=13, ymin=10, ymax=26,
-				xtick={5,6,8,10,12}, ytick={12,14,16,18,20,22,24},
-				grid=both, grid style={gray!25},
-				legend pos=north west, legend style={font=\scriptsize}]
-				\addplot[only marks, mark=*, imdpBlue] coordinates {(5,12)(6,14)(8,18)(10,20)(12,24)};
-				\addlegendentry{measured}
-				\addplot[dashed, thick, accentOrange, domain=4.4:12.6] {1.6585*x + 4.0};
-				\addlegendentry{least-squares fit $k = 1.66\,g_0 + 4.0$}
-			\end{axis}
-		\end{tikzpicture}
-		\caption{Saturation rung against starting gap for the Following family. The dashed line is a descriptive least-squares fit, $k \approx 1.66\,g_0 + 4.0$; its reciprocal slope, $0.60$\,m of starting gap per period, is the empirical worst-case closure rate of the certified intervals for this family. The fit is descriptive, not a bound.}
-		\label{fig:saturation}
-	\end{figure}
+		\begin{tabular}{lcc}
+			\toprule
+			Scenario & Starting gap (m) & $k_1$, first horizon with $P_{\max} = 1$ \\
+			\midrule
+			Following Critical & $5$ & $12$ \\
+			Following Tight & $6$ & $14$ \\
+			Following Near & $8$ & $18$ \\
+			Following Mid & $10$ & $20$ \\
+			Following Wide & $12$ & $24$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The horizon at which the worst case becomes certain, per car-following scenario.}
+		\label{tab:k1}
+	\end{table}
+	
+	
+	A Monte Carlo simulation of the modelled system, that is, repeated random runs of it drawing the lead-velocity noise that the noise-free simulation switched off, uses the dynamics~\eqref{eq:lag}--\eqref{eq:gap}, the controller~\eqref{eq:controller} as quantised on the grid, and the lead-velocity kernel~\eqref{eq:sigmav} truncated to the $\vlead$ range. It ran $10{,}000$ runs per scenario to horizon $24$ under a fixed, recorded random seed; Table~\ref{tab:mc} gives the crash counts. Every observed crash fraction lies inside its certified bracket, and all lie far below $P_{\max}$, which is the worst case the intervals admit and not the rate at which the modelled system crashes. The two Following Near crashes are consistent with the controller~\eqref{eq:controller}, whose first decision from a gap of $8$\,m is coast while from $5$\,m it is brake, so Following Near closes at full speed for longer before braking engages.
+	
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{lc}
+			\toprule
+			Scenario & Crashes in $10{,}000$ runs to horizon $24$ \\
+			\midrule
+			Following Critical & $0$ \\
+			Following Tight & $0$ \\
+			Following Near & $2$ \\
+			Following Mid & $0$ \\
+			Following Wide & $0$ \\
+			\bottomrule
+		\end{tabular}
+		\caption{The Monte Carlo simulation, $10{,}000$ runs per scenario.}
+		\label{tab:mc}
+	\end{table}
 	
 	\paragraph{Cost.}
-	The fine-rung maximise batch ($24$ properties) completed in $3{,}494.9$\,s of wall-clock time at a peak of $30{,}878$\,MB; the coarse batches complete within the resource envelope of Section~\ref{sec:cs:exp}. The window trade of Section~\ref{sec:abs:budget} is thus realised at no increase in verification cost over the production grid.
+	Table~\ref{tab:cost} gives the cost of the queries reported in this subsection.
 	
-	\paragraph{Simulation corroboration.}
-	A Monte Carlo campaign simulates the modelled system directly: the plant equations of Section~\ref{sec:cs:sys}, the controller quantised at cell centres, and the lead-velocity kernel truncated to the grid band and renormalised, matching the certified modelling kernel. A crash is entry into the crash cell slab; departure from the window ends a run as safe, mirroring the sink routing. Each scenario ran $10{,}000$ trajectories to $k = 24$ under a fixed recorded seed; the simulator's controller logic is asserted against the implementation at startup, and the script is preserved with the artifacts. Every empirical crash fraction lies within its certified bracket. The crash counts are zero at every measured rung except Following\_Near, which recorded $2$ crashes in $10{,}000$ by $k = 18$: fraction $2.0 \times 10^{-4}$, Wilson $95\%$ interval $[5.5 \times 10^{-5},\ 7.3 \times 10^{-4}]$. Two readings follow. First, containment is corroborated on sampled trajectories, independently of the exhaustive per-cell test. Second, the campaign measures the one-sidedness of the brackets: at rungs where $P_{\max}$ lies between $0.24$ and $1$, the empirical fractions are at most $2.0 \times 10^{-4}$, with $95\%$ upper confidence limits at most $7.3 \times 10^{-4}$, and at Following\_Critical, $k = 10$, the upper confidence limit $3.8 \times 10^{-4}$ falls below $P_{\max} = 1.86 \times 10^{-3}$ itself. The fractional $P_{\max}$ values therefore quantify the worst case admissible within the certified intervals, not the likelihood of the modelled system; the distance between the two is the one-sidedness identified in Section~\ref{sec:cs:exp} and taken up in Section~\ref{sec:cs:future}.
+	\begin{table}[H]
+		\centering
+		\small
+		\begin{tabular}{lcc}
+			\toprule
+			Queries & Time & Peak memory \\
+			\midrule
+			Ten-second horizon, medium production grid, $P_{\max}$ and $P_{\min}$ & $169$\,min and $99$\,min & $37.5$\,GB \\
+			Car-following scenarios, extra-fine Following grid, $P_{\max}$ & $58$\,min & $30.9$\,GB \\
+			\bottomrule
+		\end{tabular}
+		\caption{Verification cost on the cluster node.}
+		\label{tab:cost}
+	\end{table}
+	
+	\subsection{Interpretation and outlook}
+	\label{sec:cs:future}
+	
+	In plain terms, the case study delivers certified worst-case crash probabilities for an AEBS under perfect perception. On the medium production grid the worst case is certified impossible up to a horizon set by the start state and certain from the next queried horizon. On the extra-fine Following grid the worst case is strictly between $0$ and $1$ at some horizon for every car-following scenario, the values are ordered by starting gap, and the horizon at which the worst case becomes certain grows with the starting gap. Every best-case probability outside the two start states already certain to crash is $0$, so each bracket is an upper bound on the crash probability of the modelled system and not an estimate of it. The simulation confirms that the modelled system's crash fractions sit far below the upper bounds.
+	
+	These results are the perfect-perception baseline of the wider programme (Section~\ref{sec:intro}). The perception layer of Section~\ref{sec:cs:sys} passes the state through unchanged, and every bracket in this section is conditioned on that. The next stage replaces it with measured perception uncertainty from the DNNs, composed with the same certified plant IMDP, and re-runs the same queries; against a perfect-perception baseline the change can only degrade the curves of Figure~\ref{fig:followingcurves}, and the baseline makes the degradation measurable. The baseline is also the reference for correlating DNN verification results with whole-system safety and for extracting the perception requirements that matter most for undegraded safety. Those requirements serve both as specifications a perception component must meet and as runtime monitors that detect safety degradation in operation. The wider framework composes the perception and plant pieces by assume--guarantee contracts, so the brackets certified here are the plant side of that composition.
 	
 	\subsection{Future work}
 	\label{sec:cs:future}
