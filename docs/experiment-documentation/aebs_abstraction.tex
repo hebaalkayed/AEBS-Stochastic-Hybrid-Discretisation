@@ -184,50 +184,107 @@
 	\section{Background}
 	\label{sec:bg}
 	
-	This section fixes the class of system models we abstract from, the class of finite-state models we abstract to, the verification question we wish to answer, and the framework under which a containing IMDP is a sound surrogate for the continuous system.
+	This section fixes, in the standard terms of the field, the ingredients on which the abstraction pipeline of Section~\ref{sec:abs} and the case study of Section~\ref{sec:cs} rest. These are the class of continuous models we abstract from, the safety question asked of them, the partition approach by which such models are made finite, the interval-valued finite model we abstract to, and the framework by which verification results transfer between the two.
 	
 	\subsection{Discrete-time stochastic hybrid systems}
 	\label{sec:bg:dtshs}
 	
-	Following the formalisation of~\cite[Def.~1.2]{LSAZ22}, a \emph{discrete-time stochastic hybrid system} (dt-SHS) is a tuple
+	The source models of the abstraction are the stochastic hybrid systems of Section~\ref{sec:intro}, given in discrete time. Following the formalisation of~\cite[Def.~1.2]{LSAZ22}, a \emph{discrete-time stochastic hybrid system} (dt-SHS) is a tuple
 	\begin{equation}
 		\Sigma \;=\; (Q,\; n,\; X,\; U,\; T_x,\; Y,\; h),
 		\label{eq:dtshs}
 	\end{equation}
-	where $Q = \{q_1, \ldots, q_p\}$ is a finite set of discrete modes; $n : Q \to \mathbb{N}_{\ge 1}$ assigns to each mode a continuous-state dimension; $X \subseteq \bigcup_{q \in Q} \{q\} \times \R^{n(q)}$ is the hybrid state space with Borel $\sigma$-algebra $\mathcal{B}(X)$; $U \subseteq \R^m$ is a Borel input space; $T_x : \mathcal{B}(X) \times X \times U \to [0,1]$ is a conditional stochastic kernel; $Y$ is a Borel output space; and $h : X \to Y$ is a measurable output map. The kernel $T_x$ characterises the one-step transition law: for any $A \in \mathcal{B}(X)$ and any $k \in \mathbb{N}$,
+	where
+	\begin{itemize}
+		\item $Q = \{q_1, \ldots, q_p\}$ is a finite set of discrete modes;
+		\item $n : Q \to \mathbb{N}_{\ge 1}$ assigns to each mode a continuous-state dimension;
+		\item $X \subseteq \bigcup_{q \in Q} \{q\} \times \R^{n(q)}$ is the hybrid state space with Borel $\sigma$-algebra $\mathcal{B}(X)$;
+		\item $U \subseteq \R^m$ is a Borel input space;
+		\item $T_x : \mathcal{B}(X) \times X \times U \to [0,1]$ is a conditional stochastic kernel;
+		\item $Y$ is a Borel output space and $h : X \to Y$ is a measurable output map.
+	\end{itemize}
+	The kernel $T_x$ characterises the one-step transition law. For any $A \in \mathcal{B}(X)$ and any $k \in \mathbb{N}$,
 	\begin{equation}
 		\Prob\bigl(x(k+1) \in A \,\big|\, x(k), \nu(k)\bigr) \;=\; \int_A T_x\bigl(dx(k+1) \,\big|\, x(k), \nu(k)\bigr),
 		\label{eq:dtshs-kernel}
 	\end{equation}
-	where $x(k) \in X$ is the state at step $k$ and $\nu(k) \in U$ is the input applied at that step.
+	where $x(k) \in X$ is the state at step $k$ and $\nu(k) \in U$ is the input applied at that step. When the kernel admits a conditional density, probabilities under $T_x$ are integrals of that density. The error analyses of the partition-based literature assume this density is Lipschitz continuous, meaning that a bounded change in the state changes the density by at most a proportional amount~\cite[Def.~3.1]{LSAZ22}.
 	
 	When $|Q| = 1$ the discrete component is trivial and the model reduces to a discrete-time stochastic control system over a continuous state space~\cite[Def.~1.3]{LSAZ22}; this is the form taken by the case study of Section~\ref{sec:cs}.
 	
-	\subsection{Interval Markov decision processes}
-	\label{sec:bg:imdp}
-	
-	The target of the abstraction is a finite-state model with interval-valued transition probabilities. Following~\cite{GLD00}, an \emph{Interval Markov Decision Process} (IMDP, also called a \emph{bounded-parameter MDP}) is a tuple
-	\begin{equation}
-		\mathcal{I} \;=\; (\hat S,\; \hat U,\; \check P,\; \hat P),
-		\label{eq:imdp}
-	\end{equation}
-	where $\hat S$ is a finite set of states, $\hat U$ a finite set of actions, and $\check P, \hat P : \hat S \times \hat U \times \hat S \to [0,1]$ are lower- and upper-bound transition functions with $\check P(s,a,s') \le \hat P(s,a,s')$ for every triple. The IMDP represents the set of all MDPs whose exact transition probabilities $P(s,a,s')$ satisfy $\check P(s,a,s') \le P(s,a,s') \le \hat P(s,a,s')$ and whose rows sum to one. Verification of an IMDP property is performed against the worst-case (or, dually, best-case) choice of transition distribution consistent with the stored intervals, so the output is itself an interval bracketing the property value over the entire set of consistent MDPs.
-	
-	\subsection{The probabilistic invariance problem}
-	\label{sec:bg:inv}
-	
-	For a dt-SHS $\Sigma$ with state space $X$, the \emph{probabilistic invariance} (finite-horizon safety) problem~\cite{APLS08} is to compute, for each initial state $x_0 \in X$, the probability
+	The safety question asked of such a system is whether it remains within a designated safe region over a finite time horizon. For a dt-SHS $\Sigma$ with state space $X$, the \emph{probabilistic invariance} problem~\cite{APLS08} is to compute, for each initial state $x_0 \in X$, the probability
 	\begin{equation}
 		p_{x_0}(A) \;=\; \Prob\bigl(\,x(k) \in A\ \text{for all } k \in [0, N] \,\big|\, x(0) = x_0\,\bigr),
 		\label{eq:invariance}
 	\end{equation}
-	where $A \subseteq X$ is the Borel set of safe states, $N$ a finite horizon, and $x(k)$ the state under the kernel $T_x$. The quantity in~\eqref{eq:invariance} can be characterised as the value at time $0$ of a backward Bellman recursion over $A$~\cite[Thm.~1]{APLS08}; the recursion involves integrals against $T_x$ that are generally intractable in closed form, which motivates a finite-state abstraction on which the discrete analogue of the recursion is computable.
+	where
+	\begin{itemize}
+		\item $A \subseteq X$ is the Borel set of safe states;
+		\item $N$ is the finite horizon, counted in steps;
+		\item $x(k)$ is the state at step $k$ under the kernel $T_x$.
+	\end{itemize}
+	The complementary quantity is the \emph{bounded-reachability} probability
+	\begin{equation}
+		r_{x_0}(A) \;=\; 1 - p_{x_0}(A) \;=\; \Prob\bigl(\,x(k) \in X \setminus A\ \text{for some } k \in [0, N] \,\big|\, x(0) = x_0\,\bigr),
+		\label{eq:reach}
+	\end{equation}
+	where $X \setminus A$ is the unsafe set. The safety properties verified in Section~\ref{sec:cs} are bounded-reachability probabilities of this form. Both quantities are characterised by a backward recursion whose every step integrates against the kernel~\cite[Thm.~1]{APLS08}; these integrals are generally intractable in closed form, so neither quantity is computable directly on the continuous system.
+	
+	\subsection{Partition-based abstraction}
+	\label{sec:bg:grid}
+	
+	A finite model of a dt-SHS is obtained by partitioning its continuous state space into finitely many cells and treating each cell as one state. On the finite model the backward recursion of Section~\ref{sec:bg:dtshs} becomes a finite computation. A \emph{partition} of the state space is a finite family of sets satisfying
+	\begin{equation}
+		X \;=\; \bigcup_{i=1}^{M} A_i, \qquad A_i \cap A_j = \emptyset \ \text{ for } i \neq j,
+		\label{eq:partition}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $M$ is the number of cells;
+		\item $A_1, \ldots, A_M$ are the \emph{cells}, pairwise disjoint measurable subsets of $X$.
+	\end{itemize}
+	
+	By~\eqref{eq:dtshs-kernel}, one step from a continuous state inside a source cell lands in a given target cell with a probability determined by the kernel. This probability generally varies as the state ranges over the source cell. The classical construction ignores the variation: it fixes one \emph{representative point} per cell and adopts the kernel value at that point as the cell-to-cell transition probability~\cite{LSAZ22},
+	\begin{equation}
+		P(i, a, j) \;=\; T_x\bigl(A_j \,\big|\, z_i,\; a\bigr),
+		\label{eq:reppoint}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $z_i \in A_i$ is the representative point chosen in the source cell $A_i$;
+		\item $P(i, a, j)$ is the resulting transition probability from cell $A_i$ to cell $A_j$ under input $a$.
+	\end{itemize}
+	When the input set is finite, the model so produced is a \emph{Markov decision process} (MDP), a finite model with states, actions, and one exact probability per transition~\cite{KNP25}. Retaining the within-cell variation instead, as a range of admissible values for each transition, leads to the interval-valued target model of Section~\ref{sec:bg:imdp}.
+	
+	\subsection{Interval Markov decision processes}
+	\label{sec:bg:imdp}
+	
+	The target of the abstraction stores the within-cell variation of Section~\ref{sec:bg:grid} as an interval attached to each transition. Following~\cite{GLD00}, an \emph{Interval Markov Decision Process} (IMDP, also called a \emph{bounded-parameter MDP}) is a tuple
+	\begin{equation}
+		\mathcal{I} \;=\; (S,\; U,\; \check P,\; \hat P),
+		\label{eq:imdp}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $S$ is a finite set of states and $U$ a finite set of actions;
+		\item $\check P, \hat P : S \times U \times S \to [0,1]$ are the lower-bound and upper-bound transition functions, with $\check P(s,a,s') \le \hat P(s,a,s')$ for every triple.
+	\end{itemize}
+	The IMDP represents the set of all MDPs over $\hat S$ and $\hat U$ whose exact transition probabilities lie within the corresponding bounds and whose transition probabilities out of each state and action sum to one.
+	
+	For the abstraction of a dt-SHS, the IMDP takes one state per cell of~\eqref{eq:partition} and its actions from the finite input set. The interval attached to the transition from cell $A_i$ to cell $A_j$ under action $a$ is the range of the cell-to-cell probability over the source cell,
+	\begin{equation}
+		\check P(i, a, j) \;=\; \min_{s \in A_i} T_x\bigl(A_j \,\big|\, s, a\bigr), \qquad
+		\hat P(i, a, j) \;=\; \max_{s \in A_i} T_x\bigl(A_j \,\big|\, s, a\bigr),
+		\label{eq:extrema}
+	\end{equation}
+	where the minimum and the maximum are the smallest and the largest value the cell-to-cell probability takes as the state $s$ ranges over the source cell $A_i$; both are attained under the continuity assumption of Section~\ref{sec:abs}.
 	
 	\subsection{Robust verification of interval models}
 	\label{sec:bg:robust}
 	
-	An IMDP denotes a \emph{set} of Markov decision processes, namely all those whose row-stochastic transition probabilities lie within the stored intervals. This is the object studied under the name \emph{Markov set-chain}~\cite{Hartfiel98}. Robust verification of a temporal-logic property over an IMDP computes the extremal value of the property over the whole denoted set. The preservation result we rely on is that of~\cite{DAK12}: when one model's transition probabilities are contained, transition by transition, within the intervals of an interval model, the robust PCTL value computed on the interval model brackets the property value of the contained model. Containment of the concrete transition probabilities within the abstract intervals is therefore the single hypothesis under which a verification result on the IMDP transfers to the system being abstracted; the notion of approximate abstraction for stochastic hybrid systems we use originates with~\cite{ADD11}. We make this hypothesis precise and discharge it in Section~\ref{sec:abs:sound}.
+	Verification of an interval model must account for every exact model that its intervals admit. The set of MDPs represented by an IMDP is the object studied as a \emph{Markov set-chain}~\cite{Hartfiel98}; a \emph{selection} of the set-chain is a choice, for each state and action, of one transition distribution consistent with the intervals. Properties are expressed in probabilistic computation tree logic (PCTL), the specification language of probabilistic model checking, in which both the invariance and the bounded-reachability probabilities of Section~\ref{sec:bg:dtshs} are expressible~\cite{KNP25}. \emph{Robust verification} of a PCTL property over an IMDP computes the smallest and the largest value, written $P_{\min}$ and $P_{\max}$, that the property attains over the represented set. We call the pair $[P_{\min}, P_{\max}]$ the \emph{bracket} of the property. The value of the property on every MDP of the set, in particular on every selection, lies within the bracket.
 	
+	The preservation result we rely on is due to~\cite{DAK12}. When one model's transition probabilities are contained, transition by transition, within the intervals of the IMDP, the bracket computed on the IMDP contains the property value of the contained model. Containment of the concrete transition probabilities within the abstract intervals is therefore the single hypothesis under which a verification result on the IMDP transfers to the system being abstracted. We make this hypothesis precise and discharge it in Section~\ref{sec:abs:sound}. In practice the bracket is computed by robust value iteration, the discrete counterpart of the backward recursion of Section~\ref{sec:bg:dtshs}, resolved at each step against the extreme distributions admitted by the intervals; the model checker Storm implements it for interval models~\cite{Storm}.
 	\section{Related Work}
 	\label{sec:rw}
 	
@@ -2400,7 +2457,7 @@
 	
 	These results are the perfect-perception baseline of the wider programme (Section~\ref{sec:intro}). The perception layer of Section~\ref{sec:cs:sys} passes the state through unchanged, and every bracket in this section is conditioned on that. The next stage replaces it with measured perception uncertainty from the DNNs, composed with the same certified plant IMDP, and re-runs the same queries; against a perfect-perception baseline the change can only degrade the curves of Figure~\ref{fig:followingcurves}, and the baseline makes the degradation measurable. The baseline is also the reference for correlating DNN verification results with whole-system safety and for extracting the perception requirements that matter most for undegraded safety. Those requirements serve both as specifications a perception component must meet and as runtime monitors that detect safety degradation in operation. The wider framework composes the perception and plant pieces by assume--guarantee contracts, so the brackets certified here are the plant side of that composition.
 	
-	\subsection{Future work}
+	\section{Future work}
 	\label{sec:cs:future}
 	
 	The perfect-perception abstraction is the baseline of the wider programme (Section~\ref{sec:intro}). Track~2 quantifies the perception components into per-input uncertainty tuples; Track~3 replaces the identity perception module of Section~\ref{sec:abs:full} with an enumeration of perception outputs weighted by those tuples, producing the end-to-end model from which runtime monitors are synthesised. The noise state-independence trip-wire of Algorithm~\ref{alg:imagebox} marks exactly the point at which that composition will force the interval computation to range over state-dependent noise. The Following brackets of Section~\ref{sec:cs:extrafine} are the quantitative baseline against which the perception-aware model's brackets will be compared.
