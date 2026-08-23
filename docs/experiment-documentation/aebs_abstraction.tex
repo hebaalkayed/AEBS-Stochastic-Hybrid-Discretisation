@@ -16,6 +16,7 @@
 \usepackage{titlesec}
 \usepackage{tikz}
 \usepackage{pgfplots}
+\usepackage{pgfgantt}
 \pgfplotsset{compat=1.17}
 \usetikzlibrary{shapes, arrows.meta, positioning, fit, backgrounds, calc, patterns}
 
@@ -2460,9 +2461,110 @@
 	\section{Future work}
 	\label{sec:cs:future}
 	
-	The perfect-perception abstraction is the baseline of the wider programme (Section~\ref{sec:intro}). Track~2 quantifies the perception components into per-input uncertainty tuples; Track~3 replaces the identity perception module of Section~\ref{sec:abs:full} with an enumeration of perception outputs weighted by those tuples, producing the end-to-end model from which runtime monitors are synthesised. The noise state-independence trip-wire of Algorithm~\ref{alg:imagebox} marks exactly the point at which that composition will force the interval computation to range over state-dependent noise. The Following brackets of Section~\ref{sec:cs:extrafine} are the quantitative baseline against which the perception-aware model's brackets will be compared.
+	This paper closes Track~1 of the programme of Section~\ref{sec:intro}. Figure~\ref{fig:status} restates the programme with the status of each track. The certified artefacts of Section~\ref{sec:cs}, the two certified configurations and the pipeline that produced them, are the inputs the later tracks build on, and the Following brackets of Section~\ref{sec:cs:extrafine} are the quantitative baseline against which the perception-aware model's brackets will be compared.
 	
-	Within the present track, two items remain. First, the nondeterministic lead: a lead that chooses per step from a set of admissible accelerations~\cite{EuroNCAP} requires a second action axis in the discretiser and the composition, over which the checker would quantify adversarially; it is defined in the implementation but not composed. Second, the width structure of the brackets. The zero lower bounds are exact for width-preserving deterministic dynamics (Section~\ref{sec:cs:exp}), so every measured $P_{\min}$ in this paper is $0$ and the reported brackets are one-sided: informative upper bounds, trivial lower bounds. Three levers could produce informative lower bounds: abstractions whose transitions target \emph{sets} of states rather than individual cells, which preserve the coherence the per-target intervals discard~\cite{GL25}; game-based abstractions, which separate the abstraction's nondeterminism from the system's and tighten both bounds~\cite{KNP06}; and actuation noise on the ego dynamics, which would make the ego dimension stochastic and remove the straddling indicators that force the zeros, at the price of a second stochastic dimension in the kernel. [UNVERIFIED: the characterisations of \cite{GL25} and \cite{KNP06} are to be checked against the sources before circulation.]
+	\begin{figure}[h]
+		\centering
+		\resizebox{0.95\textwidth}{!}{%
+			\begin{tikzpicture}[
+				pipe_input/.style  = {draw=orange!70!black, trapezium, trapezium left angle=75,
+					trapezium right angle=105, thick, minimum width=2.6cm, minimum height=0.9cm,
+					align=center, fill=inputYellow, font=\scriptsize\sffamily},
+				pipe_proc/.style   = {draw=imdpBlue!80, rectangle, rounded corners=4pt, thick,
+					minimum width=2.9cm, minimum height=1.0cm, align=center,
+					fill=imdpLightBlue, font=\small\sffamily\bfseries},
+				pipe_out/.style    = {draw=safeGreen!70!black, rectangle, thick,
+					minimum width=2.4cm, minimum height=0.9cm, align=center,
+					fill=outputGreen, font=\scriptsize\sffamily},
+				pipe_final/.style  = {draw=imdpBlue, rectangle, rounded corners=4pt, ultra thick,
+					minimum width=2.4cm, minimum height=1.1cm, align=center,
+					fill=imdpBlue!15, font=\small\sffamily\bfseries},
+				line/.style        = {->, thick, >=latex, font=\scriptsize\sffamily}
+				]
+				\fill[safeGreen!10, rounded corners=6pt] (-1.4, 0.3) rectangle (10.6, 2.5);
+				\fill[accentOrange!8, rounded corners=6pt] (-1.4, -3.3) rectangle (10.6, -0.2);
+				\fill[imdpBlue!8, rounded corners=6pt] (10.9, -1.4) rectangle (18.2, 1.15);
+				
+				\node[font=\small\sffamily\bfseries, text=safeGreen!70!black]
+				at (4.8, 2.75) {Track 1: Formal Abstraction (this paper, complete)};
+				\node[font=\small\sffamily\bfseries, text=accentOrange!80!black]
+				at (4.8, -3.55) {Track 2: DNN Uncertainty Quantification (next)};
+				\node[font=\small\sffamily\bfseries, text=imdpBlue!80!black]
+				at (14.55, 1.4) {Track 3: Composition and Monitor Synthesis};
+				
+				\node[pipe_input, text width=0.9cm, align=center] (plant_in) at (0, 1.4) {dt-SHS};
+				\node[pipe_proc, text width=2.4cm] (disc) at (4.8, 1.4) {1. Formal\\Abstraction};
+				\node[pipe_out, text width=1.8cm] (disc_out) at (9.0, 1.4) {Verified IMDP};
+				
+				\draw[line] (plant_in) -- (disc);
+				\draw[line] (disc) -- (disc_out);
+				\node[below=0.16cm of disc, font=\itshape\scriptsize\color{imdpBlue!80!black}] {this paper};
+				
+				\node[pipe_input, text width=1.2cm, align=center] (data) at (0, -0.9) {Test Dataset};
+				\node[pipe_input, text width=2.1cm, align=center] (dnn_in) at (0, -2.6) {DNN\\Components};
+				
+				\node[pipe_proc, text width=3.4cm] (uq) at (4.8, -1.75)
+				{2. DNN Uncertainty\\Quantification};
+				\node[pipe_out, text width=2.8cm] (uq_out) at (9.0, -1.75)
+				{DNN Verification\\Results};
+				
+				\draw[line] (data.east) -- ++(0.5,0) |- ([yshift=0.45cm]uq.west);
+				\draw[line] (dnn_in.east) -- ++(0.5,0) |- ([yshift=-0.45cm]uq.west);
+				\draw[line] (uq) -- (uq_out);
+				
+				\node[pipe_proc, text width=3.2cm] (contracts) at (12.8, -0.1)
+				{3. Perception-Aware\\IMDP Construction};
+				\draw[line] (disc_out.east) -- ++(0.6,0) |- (contracts.north west);
+				\draw[line] (uq_out.east) -- ++(0.6,0) |- (contracts.south west);
+				
+				\node[pipe_final, text width=2.6cm] (monitor) at (16.4, -0.1)
+				{\textbf{Runtime}\\\textbf{Monitor}};
+				\draw[line, double, double distance=1.5pt] (contracts) -- (monitor);
+			\end{tikzpicture}%
+		}
+		\caption{Status of the programme. Track~1 is complete; Tracks~2 and~3 follow the timeline of Figure~\ref{fig:gantt}.}
+		\label{fig:status}
+	\end{figure}
+	
+	The coming year proceeds in four steps (Figure~\ref{fig:gantt}).
+	\begin{enumerate}
+		\item \textbf{Degradation quantification.} A perception component with prescribed error rates is composed with the certified extra-fine configuration, and the Following family is remeasured end-to-end against the baseline. The prescribed rates are state-independent by construction, so this step reuses the certification machinery of Section~\ref{sec:abs:sound} unchanged and exercises the Track~3 interface early.
+		\item \textbf{Uncertainty quantification.} The prescribed component is replaced by a trained DNN with a labelled test dataset, either adopted from an established driving-perception dataset or generated in simulation, following the practice of~\cite{DeepDECS24}. Independent verification techniques partition the test dataset by their joint outcome; one confusion matrix per outcome yields the conditional probability of each perceived state given each true state and outcome, the per-input uncertainty tuples of the programme~\cite{DeepDECS24}. We are experimenting with the publicly released DeepDECS implementation, whose augmentation tool composes these probabilities into a discrete-time Markov chain for PRISM; we will adapt it to act on the transition intervals of our Storm-checked IMDP instead, reusing engineering rather than rebuilding it. Measured perception error varies with the state, which breaks the state-independence assumption of Algorithm~\ref{alg:imagebox}; the interval computation and the containment test must therefore be extended to range over state-dependent noise, and this is the one anticipated change to the pipeline. In the composed model the tuples enter the transition intervals alongside the discretisation over-approximation of this paper, so the interval target of Section~\ref{sec:bg:imdp} carries both uncertainty kinds, as it was chosen to do.
+		\item \textbf{Monitor synthesis and validation.} Track~3 composes the tuples with the certified IMDP through the perception-aware construction step of Section~\ref{sec:intro} and synthesises runtime monitors from the composed model. At run time the monitor reads the verification signals of the perception component, identifies which quantified uncertainty regime the current input falls in, and applies the safety bound computed offline for that regime; when the applicable bound is unacceptable, the monitor overrides the perception output in favour of a verified fallback. The target result is quantitative recovery: verification of the composed system, using the DNN verification results, should recover a substantial part of the degradation measured in the first step.
+		\item \textbf{Monitor extension.} The monitor is extended beyond a single perception channel, with fused sensor inputs as the candidate direction.
+	\end{enumerate}
+	
+	\begin{figure}[h]
+		\centering
+		\resizebox{0.95\textwidth}{!}{%
+			\begin{ganttchart}[
+				canvas/.append style={draw=none},
+				title/.append style={draw=none, fill=none},
+				title label font=\small\sffamily\color{black!60},
+				bar label font=\small\sffamily,
+				bar height=0.55,
+				bar top shift=0.225,
+				bar/.append style={rounded corners=2pt, draw=none, fill=accentOrange!70},
+				vgrid={*1{draw=black!12, line width=0.4pt}},
+				x unit=0.85cm,
+				y unit title=0.6cm,
+				y unit chart=0.7cm
+				]{1}{13}
+				\gantttitle{2026}{4}\gantttitle{2027}{9} \\
+				\gantttitle{S}{1}\gantttitle{O}{1}\gantttitle{N}{1}\gantttitle{D}{1}\gantttitle{J}{1}\gantttitle{F}{1}\gantttitle{M}{1}\gantttitle{A}{1}\gantttitle{M}{1}\gantttitle{J}{1}\gantttitle{J}{1}\gantttitle{A}{1}\gantttitle{S}{1} \\
+				\ganttbar{Degradation quantification}{1}{2} \\
+				\ganttbar{Uncertainty quantification}{3}{5} \\
+				\ganttbar[bar/.append style={rounded corners=2pt, draw=none, fill=imdpBlue!70}]{Monitor synthesis and validation}{6}{10} \\
+				\ganttbar[bar/.append style={rounded corners=2pt, draw=none, fill=imdpBlue!70}]{Monitor extension; sensor fusion}{10}{13}
+			\end{ganttchart}%
+		}
+		\caption{Timeline for Tracks~2 and~3.}
+		\label{fig:gantt}
+	\end{figure}
+	
+	Within the present track, two items remain. First, the nondeterministic lead: a lead that chooses per step from a set of admissible accelerations~\cite{EuroNCAP} requires a second action axis in the discretiser and the composition, over which the checker would quantify adversarially; it is defined in the implementation but not composed. Second, the width structure of the brackets. The zero lower bounds are exact for width-preserving deterministic dynamics (Section~\ref{sec:cs:exp}), so every measured $P_{\min}$ in this paper is $0$ and the reported brackets are one-sided: informative upper bounds, trivial lower bounds. Actuation noise on the ego dynamics would make the ego dimension stochastic and remove the straddling indicators that force the zeros, at the price of a second stochastic dimension in the kernel.
+	
+	The contribution of this paper to the programme is the certified plant-side component: a sound, automatically constructed IMDP with a discharged containment certificate, together with the pipeline that regenerates it under changed models. The contribution the completed programme aims at is an end-to-end verified learning-enabled AEBS in which every deployed safety claim, including the monitor's switching decisions, traces back to bounds computed offline against a certified model.
 	
 	\section{Conclusion}
 	\label{sec:concl}
