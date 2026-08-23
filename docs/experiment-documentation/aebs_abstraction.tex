@@ -17,6 +17,7 @@
 \usepackage{tikz}
 \usepackage{pgfplots}
 \usepackage{pgfgantt}
+\usepackage{authblk}
 \pgfplotsset{compat=1.17}
 \usetikzlibrary{shapes, arrows.meta, positioning, fit, backgrounds, calc, patterns}
 
@@ -76,16 +77,23 @@
 \algrenewcommand\algorithmicrequire{\textbf{Input:}}
 \algrenewcommand\algorithmicensure{\textbf{Output:}}
 
-\title{A Sound Interval-MDP Abstraction of an Autonomous Emergency Braking System\\
-	\large Construction, Soundness Certificate, and PRISM Encoding}
-\author{Heba Al Kayed\\School of Informatics, University of Edinburgh} % TODO: fill in before sharing
-\date{}
+\setlength{\affilsep}{0.2em}
+\renewcommand\Authfont{\normalsize}
+\renewcommand\Affilfont{\small\itshape}
+
+
+\title{Sound Finite Abstraction of Learning-Enabled Discrete-Time Stochastic Hybrid Systems: 2nd Year Review\\
+	\small IMDP Construction, Soundness Certification, and Probabilistic Model Checking under Perfect Perception}
+\author{Heba Al Kayed}
+\affil{Institute for Perception, Action and Behaviour (IPAB), School of Informatics, University of Edinburgh}
+\affil{\normalfont\small Supervisors: Dr Craig Innes and Dr Elizabeth Polgreen}
+\date{\normalfont\small August 2026}
 
 \begin{document}
 	\maketitle
 	
 	\begin{abstract}
-		Autonomous systems increasingly place learned perception components inside safety-critical control loops, and certifying such systems demands quantitative guarantees: bounds on the probability of an unsafe event within a given time horizon. Existing verification frameworks for learning-enabled autonomous systems, spanning compositional verification, falsification, and runtime assurance, analyse a system-level model that is taken as given. Constructing that model soundly from the concrete dynamics is itself an obstacle: the state space is continuous, the dynamics are uncertain, and a faithful finite model can be prohibitively large. Our insight is that soundness can be carried per transition and certified on the shipped artifact: we abstract the system as an Interval Markov Decision Process, in which every transition carries a probability interval guaranteed to bracket the transition probabilities of the modelled dynamics, and we certify this containment by an exhaustive test rather than an analytic error bound. We present a modular pipeline that applies the construction to an Autonomous Emergency Braking System under perfect perception, the first track of a programme on verifying learning-enabled cyber-physical systems and synthesising runtime monitors for them, and that emits the abstraction both as modular PRISM components and as a flattened encoding of the closed loop, certified equivalent to them, for robust verification with the Storm model checker~\cite{Storm} at scale. The containment certificate covers a model of roughly two million states and reports zero violations across all cells and actions. Robust model checking certifies a crash probability of exactly one from the imminent-collision scenario and returns saturated brackets for the remaining scenarios at the ten-second horizon, locating the precision limit of the reported resolution. Horizon-resolved verification then locates, per scenario, the largest horizon that resolution decides, and a second certified configuration at finer resolution yields fractional, scenario-discriminating probability brackets for a family of car-following start states.
+		Stochastic hybrid systems are an established modelling framework for autonomous systems that couple continuous physical dynamics with discrete components, and recent advances in deep learning have produced autonomous systems whose perception of the environment is performed by deep neural networks. Formal verification of such systems is inherently challenging, due to their mixed continuous and discrete dynamics, the uncertainty under which they operate, the dimension of their state and input sets, the size and complexity of the perception networks, and environment conditions that are hard to quantify and are subject to change~\cite{LSAZ22}. This work addresses the abstraction of such systems into finite models on which formal verification techniques such as probabilistic model checking can run. The abstraction carries a guarantee that the finite model provably contains the behaviour of its concrete system, which is what makes verification results obtained on the abstraction meaningful for the system itself. We present a constructive, automatic procedure for generating such abstractions for discrete-time stochastic hybrid systems with learning components. The procedure partitions the state space of the system and generates an Interval Markov Decision Process as the approximation of the original system, in which every transition carries a probability interval certified to contain the corresponding transition probabilities of the concrete dynamics. Our focus is on the probabilistic safety over a finite horizon. We apply the procedure to an Autonomous Emergency Braking System under perfect perception, as the first track of a wider programme on verifying learning-enabled systems and synthesising runtime monitors for them.
 	\end{abstract}
 	
 	\tableofcontents % consider removing for workshop submission
