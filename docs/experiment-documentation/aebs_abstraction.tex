@@ -52,6 +52,7 @@
 
 \theoremstyle{plain}
 \newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
 \theoremstyle{remark}
 \newtheorem*{remark}{Remark}
 
@@ -82,7 +83,7 @@
 \renewcommand\Affilfont{\small\itshape}
 
 
-\title{Sound Finite Abstraction of Learning-Enabled Discrete-Time Stochastic Hybrid Systems: 2nd Year Review\\
+\title{Sound Finite IMDP Abstraction of Discrete-Time Stochastic Hybrid Systems: 2nd Year Review\\
 	\small IMDP Construction, Soundness Certification, and Probabilistic Model Checking under Perfect Perception}
 \author{Heba Al Kayed}
 \affil{Institute for Perception, Action and Behaviour (IPAB), School of Informatics, University of Edinburgh}
@@ -93,7 +94,7 @@
 	\maketitle
 	
 	\begin{abstract}
-		Stochastic hybrid systems are an established modelling framework for autonomous systems that couple continuous physical dynamics with discrete components, and recent advances in deep learning have produced autonomous systems whose perception of the environment is performed by deep neural networks. Formal verification of such systems is inherently challenging, due to their mixed continuous and discrete dynamics, the uncertainty under which they operate, the dimension of their state and input sets, the size and complexity of the perception networks, and environment conditions that are hard to quantify and are subject to change~\cite{LSAZ22}. This work addresses the abstraction of such systems into finite models on which formal verification techniques such as probabilistic model checking can run. The abstraction carries a guarantee that the finite model provably contains the behaviour of its concrete system, which is what makes verification results obtained on the abstraction meaningful for the system itself. We present a constructive, automatic procedure for generating such abstractions for discrete-time stochastic hybrid systems with learning components. The procedure partitions the state space of the system and generates an Interval Markov Decision Process as the approximation of the original system, in which every transition carries a probability interval certified to contain the corresponding transition probabilities of the concrete dynamics. Our focus is on the probabilistic safety over a finite horizon. We apply the procedure to an Autonomous Emergency Braking System under perfect perception, as the first track of a wider programme on verifying learning-enabled systems and synthesising runtime monitors for them.
+		Stochastic hybrid systems are an established modelling framework for autonomous systems that couple continuous physical dynamics with discrete components, and recent advances in deep learning have produced autonomous systems whose perception of the environment is performed by deep neural networks. Formal verification of such systems is inherently challenging, due to their mixed continuous and discrete dynamics, the uncertainty under which they operate, the dimension of their state and input sets, the size and complexity of the perception networks, and environment conditions that are hard to quantify and are subject to change~\cite{LSAZ22}. This work addresses the abstraction of such systems into finite models on which formal verification techniques such as probabilistic model checking can run. The abstraction carries a guarantee that the finite model provably contains the behaviour of the system as modelled, which is what makes verification results obtained on the abstraction meaningful for the system itself. We present a constructive, automatic procedure for generating such abstractions for discrete-time stochastic hybrid systems with learning components. The procedure partitions the state space of the system and generates an Interval Markov Decision Process as the approximation of the original system, in which every transition carries a probability interval certified to contain the corresponding transition probabilities of the concrete dynamics. Our focus is on the probabilistic safety over a finite horizon. We apply the procedure to an Autonomous Emergency Braking System under perfect perception, as the first track of a wider programme on verifying learning-enabled systems and synthesising runtime monitors for them.
 	\end{abstract}
 	
 	\tableofcontents % consider removing for workshop submission
@@ -245,7 +246,7 @@
 	A finite model of a dt-SHS is obtained by partitioning its continuous state space into finitely many cells and treating each cell as one state. On the finite model the backward recursion of Section~\ref{sec:bg:dtshs} becomes a finite computation. A \emph{partition} of the state space is a finite family of sets satisfying
 	\begin{equation}
 		X \;=\; \bigcup_{i=1}^{M} A_i, \qquad A_i \cap A_j = \emptyset \ \text{ for } i \neq j,
-		\label{eq:partition}
+		\label{eq:partition-bg}
 	\end{equation}
 	where
 	\begin{itemize}
@@ -286,14 +287,15 @@
 		\hat P(i, a, j) \;=\; \max_{s \in A_i} T_x\bigl(A_j \,\big|\, s, a\bigr),
 		\label{eq:extrema}
 	\end{equation}
-	where the minimum and the maximum are the smallest and the largest value the cell-to-cell probability takes as the state $s$ ranges over the source cell $A_i$; both are attained under the continuity assumption of Section~\ref{sec:abs}.
+	where the minimum and the maximum are the smallest and the largest value the cell-to-cell probability takes as the state $s$ ranges over the source cell $A_i$; both are attained under the continuity assumption of Section~\ref{sec:abs}. This is the interval-valued abstraction of~\cite{LAB15}.
 	
 	\subsection{Robust verification of interval models}
 	\label{sec:bg:robust}
 	
-	Verification of an interval model must account for every exact model that its intervals admit. The set of MDPs represented by an IMDP is the object studied as a \emph{Markov set-chain}~\cite{Hartfiel98}; a \emph{selection} of the set-chain is a choice, for each state and action, of one transition distribution consistent with the intervals. Properties are expressed in probabilistic computation tree logic (PCTL), the specification language of probabilistic model checking, in which both the invariance and the bounded-reachability probabilities of Section~\ref{sec:bg:dtshs} are expressible~\cite{KNP25}. \emph{Robust verification} of a PCTL property over an IMDP computes the smallest and the largest value, written $P_{\min}$ and $P_{\max}$, that the property attains over the represented set. We call the pair $[P_{\min}, P_{\max}]$ the \emph{bracket} of the property. The value of the property on every MDP of the set, in particular on every selection, lies within the bracket.
+	Verification of an interval model must account for every exact model that its intervals admit. A \emph{selection} of the IMDP is a choice, for each state and action, of one transition distribution consistent with the intervals. Properties are expressed in probabilistic computation tree logic (PCTL), the specification language of probabilistic model checking, in which both the invariance and the bounded-reachability probabilities of Section~\ref{sec:bg:dtshs} are expressible~\cite{KNP25}. \emph{Robust verification} of a PCTL property over an IMDP computes the smallest and the largest value, written $P_{\min}$ and $P_{\max}$, that the property attains over the represented set. We call the pair $[P_{\min}, P_{\max}]$ the \emph{bracket} of the property. The value of the property on every MDP of the set, in particular on every selection, lies within the bracket.
 	
-	The preservation result we rely on is due to~\cite{DAK12}. When one model's transition probabilities are contained, transition by transition, within the intervals of the IMDP, the bracket computed on the IMDP contains the property value of the contained model. Containment of the concrete transition probabilities within the abstract intervals is therefore the single hypothesis under which a verification result on the IMDP transfers to the system being abstracted. We make this hypothesis precise and discharge it in Section~\ref{sec:abs:sound}. In practice the bracket is computed by robust value iteration, the discrete counterpart of the backward recursion of Section~\ref{sec:bg:dtshs}, resolved at each step against the extreme distributions admitted by the intervals; the model checker Storm implements it for interval models~\cite{Storm}.
+	The transfer we rely on is stated in~\cite{LAB15}. When the one-step transition probabilities of a system lie, at every step, within the intervals of the IMDP, the bracket computed on the IMDP contains the property value of that system. Containment of the concrete transition probabilities within the abstract intervals is therefore the single hypothesis under which a verification result on the IMDP transfers to the system being abstracted. Section~\ref{sec:abs:sound} makes this hypothesis precise and discharges it.
+	In practice the bracket is computed by robust value iteration, the discrete counterpart of the backward recursion of Section~\ref{sec:bg:dtshs}, resolved at each step against the extreme distributions admitted by the intervals; the model checker Storm implements it for interval models~\cite{Storm}.
 	\section{Related Work}
 	\label{sec:rw}
 	
@@ -311,7 +313,7 @@
 	
 	Systems that mix continuous physical motion with randomness are called stochastic hybrid systems, and their automated verification and synthesis is surveyed by~\cite{LSAZ22}. The survey splits the field into discretisation-based methods, which build finite abstractions, and discretisation-free methods; everything discussed here is on the discretisation-based side. Among its open problems the survey lists the construction of interval Markov models compositionally, from interval models built at the level of the subsystems. A certified interval model of one subsystem, requirement (iv), is the piece of that problem contributed here.
 	
-	The abstraction of~\cite{ADD11} partitions the continuous state space and builds a finite Markov model with one state per cell. The model is accompanied by a bound on the difference between the safety probability computed on it and the safety probability of the concrete system, governed by the regularity of the stochastic kernel and the resolution of the partition. Its target model is point-valued, one number per transition, so requirement (i) is unmet. Our construction keeps its sense of approximate abstraction and obtains soundness from the containment certificate of Section~\ref{sec:abs:sound} instead, under the preservation result for Markov set-chains~\cite{DAK12,Hartfiel98}.
+	The abstraction of~\cite{ADD11} partitions the continuous state space and builds a finite Markov model with one state per cell. The model is accompanied by a bound on the difference between the safety probability computed on it and the safety probability of the concrete system, governed by the regularity of the stochastic kernel and the resolution of the partition. Its target model is point-valued, one number per transition, so requirement (i) is unmet. Our construction keeps its sense of approximate abstraction and obtains soundness from the containment certificate of Section~\ref{sec:abs:sound} instead, under the transfer stated in~\cite{LAB15}.
 	
 	Adaptive gridding builds on that route. The procedure of~\cite{Soudjani2013} refines the partition adaptively; instead of splitting every cell equally, it splits the cells over which the kernel varies most, measured by a per-transition range bound, its Equation~3.11. Its soundness mechanism is an additive global error bound that grows with the time horizon of the property being verified, and the refinement exists to shrink that bound. In its own experiments the paper reports errors above one, attributes them to deliberately coarse partitions, and states that the bounds converge to zero as the partition is refined, at the cost of longer optimisation times~\cite{Soudjani2013}.
 	For the AEBS this mechanism breaks requirement (ii) in two ways. The bound rests on the Lipschitz assumption, a density for the next state that changes at a bounded rate between nearby states; the AEBS kernel (Section~\ref{sec:cs:model}) has no density on its deterministic dimensions, where the cell-to-cell transition probability jumps between $0$ and $1$, so on those dimensions the bound is not defined. On the one dimension where it is defined, the computed bound exceeds one within a single control period, and a bound above one on a probability excludes nothing. Here refinement does not reduce it; the bound is identical on the two grids of Section~\ref{sec:cs}, because the noise is constant, so the kernel's variation is the same over every cell.
@@ -710,7 +712,7 @@
 		p_{\min} \;\le\; T_x(A_j \mid s, a) \;\le\; p_{\max} \qquad \text{for every } s \in A_i.
 		\label{eq:cellcontain}
 	\end{equation}
-	This uniform containment over the source cell is the hypothesis under which verification results transfer from the IMDP to the continuous system~\cite{DAK12} (Section~\ref{sec:abs:sound}). The interval for a transition is built in three steps. First, bound the region that the dynamics can send the source cell to; this bound is the \emph{image box}. Second, for each dimension, bracket the probability that the successor's coordinate lands in the target cell's interval; the deterministic and stochastic dimensions of \hyperref[ass:sysclass]{Assumption~(i)} are bracketed by separate mechanisms. Third, multiply the per-dimension brackets, which by the factorisation~\eqref{eq:kernelfactor} brackets the transition probability itself.
+	This uniform containment over the source cell is the hypothesis under which verification results transfer from the IMDP to the continuous system~\cite{LAB15} (Section~\ref{sec:abs:sound}). The interval for a transition is built in three steps. First, bound the region that the dynamics can send the source cell to; this bound is the \emph{image box}. Second, for each dimension, bracket the probability that the successor's coordinate lands in the target cell's interval; the deterministic and stochastic dimensions of \hyperref[ass:sysclass]{Assumption~(i)} are bracketed by separate mechanisms. Third, multiply the per-dimension brackets, which by the factorisation~\eqref{eq:kernelfactor} brackets the transition probability itself.
 	
 	\paragraph{The image box.}
 	By \hyperref[ass:sysclass]{Assumption~(i)}, a step from $s$ under $a$ lands at the mean point $\mu(s, a)$ plus the per-dimension noise $w$. Applying the mean map to every state of the source cell gives the \emph{image set}
@@ -901,8 +903,7 @@
 	equals $1$ for a continuous state whose mean lands inside the target
 	interval and $0$ otherwise. Over the source cell, the mean
 	$\mu_d(s, a)$ ranges exactly over the image interval
-	$[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$, so the tightest bracket
-	valid for every continuous state of the cell is
+	$[\mu_d^{\text{lo}}, \mu_d^{\text{hi}}]$, so a bracket valid for every continuous state of the cell is
 	\begin{equation}
 		\bigl[\,f_{\text{lo}},\; 1\,\bigr], \qquad
 		f_{\text{lo}} =
@@ -1315,9 +1316,7 @@
 	that end, outside the grid (Figure~\ref{fig:truncation}). The
 	abstraction assumes that the dimension remains inside the band, so
 	this mass must be removed from the factors. Each factor is divided by
-	the probability that the landing lies inside the band. Away from the
-	ends of the band this probability is $1$ and the factor is unchanged;
-	near an end it is smaller than $1$, and the division raises the
+	the probability that the landing lies inside the band. Away from the	ends of the band this probability is $1$ to within the mass beyond the cutoff and the factor is unchanged;	near an end it is smaller than $1$, and the division raises the
 	factor to compensate for the removed mass.
 	
 	\begin{figure}[h]
@@ -1651,19 +1650,18 @@
 	
 	The IMDP stands in for the continuous system at verification time,
 	and the stand-in is sound when every answer computed on it covers
-	the continuous system. The preservation result
-	of~\cite{DAK12} (Section~\ref{sec:bg:robust}) reduces this to one
+	the continuous system. The transfer
+	of~\cite{LAB15} (Section~\ref{sec:bg:robust}) reduces this to one
 	hypothesis on the construction: the per-transition
 	containment~\eqref{eq:cellcontain}, that every stored interval
 	contains the true transition probability of every continuous
 	state of its source cell. This subsection establishes the
-	hypothesis twice over, by the design of the construction and by a
-	test that recomputes the true probabilities from the system
-	itself.
+	hypothesis from the design of the construction, and validates
+	the implementation by a test that recomputes the true
+	probabilities from the system itself.
 	
 	\paragraph{Containment by design.}
-	The corner evaluation~\eqref{eq:imagebox} returns the exact range
-	of the mean map over the source cell, so the image box encloses
+	The corner evaluation~\eqref{eq:imagebox} returns the range of the mean map over the closure of the source cell, so the image box encloses
 	the image of every continuous state of the cell. The
 	deterministic factor~\eqref{eq:flo} is exact with respect to the
 	image box under the half-open convention, the stochastic factor
@@ -1671,11 +1669,7 @@
 	interval~\eqref{eq:truncsound}, and the product~\eqref{eq:product}
 	of the factor brackets encloses the factorised
 	kernel~\eqref{eq:kernelfactor}. Every stored interval therefore
-	satisfies~\eqref{eq:cellcontain}. Under this containment, every
-	one-step law of the continuous system is a selection of the
-	Markov set-chain that the IMDP denotes, and the verified bracket
-	$[P_{\min}, P_{\max}]$ of Section~\ref{sec:bg:robust} covers the
-	property value of the continuous system~\cite{DAK12}.
+	satisfies~\eqref{eq:cellcontain}. Under this containment the one-step law of the continuous system is, at every step, a selection of the IMDP, and the verified bracket $[P_{\min}, P_{\max}]$ of Section~\ref{sec:bg:robust} covers the property value of the continuous system~\cite{LAB15}. This holds because the targets of a row cover every successor, the grid cells together with the terminal representative and the safe sink, and because the terminal region is a union of cells.
 	
 	\paragraph{The containment certificate.}
 	The certificate compares the abstraction against the system it
@@ -1719,13 +1713,23 @@
 	over the whole grid is the certificate of one configuration.
 	
 	\begin{notebox}[title=Scope of the soundness claim]
-		The claim covers the modelled system, not the raw physics.
-		Any cross-dimension correlation the raw physics carries is
-		removed in adopting the factorised
-		kernel~\eqref{eq:kernelfactor}, and the removal is a
-		modelling choice made before the abstraction begins. Both
-		sides of the certificate apply this choice, so the
-		certificate relates the IMDP to the system as modelled.
+		The claim covers the system as modelled, under five
+		conventions fixed before the abstraction begins. Any
+		cross-dimension correlation of the raw physics is removed in
+		adopting the factorised kernel~\eqref{eq:kernelfactor}. The
+		stochastic dimension is conditioned on the grid
+		band~\eqref{eq:quotient}. Mass that leaves the grid in a
+		deterministic dimension is absorbed in the safe sink, so a
+		run that leaves the modelled window is counted as never
+		reaching the terminal region thereafter. Labels are read at
+		cell centres (Section~\ref{sec:abs:partition}), so the
+		predicate verified is the predicate as quantised on the grid,
+		and the same holds for a controller composed with the model
+		(Section~\ref{sec:cs:exp}). The implementation omits the mass
+		beyond the cutoff and below the tolerance of
+		Section~\ref{sec:abs:intervals}. Both sides of the test apply
+		the first two conventions, so the test relates the IMDP to
+		the system as modelled.
 	\end{notebox}
 	
 	\subsection{Choosing the partition resolution}
@@ -1761,8 +1765,7 @@
 	separately and nothing ties one step's distribution to the next.
 	The set of states the model can reach therefore grows by up to
 	$r_d$ per step in each deterministic dimension $d$, wherever
-	earlier mass landed. This renewed-per-step growth is the wrapping
-	effect of interval analysis [WRAPPING-EFFECT REFERENCE].
+	earlier mass landed.
 	
 	\paragraph{The crossing horizon.}
 	A model built on a coarse grid can reach the terminal region
@@ -1980,12 +1983,12 @@
 		\label{fig:arch}
 	\end{figure}
 	
-	The IMDPs that the abstraction produces are sound by the containment certificate of Section~\ref{sec:abs:sound}. We feed the abstracted system into a probabilistic model checker, the verifier, to understand its behaviour with respect to a safety property, here a crash safety property. The IMDPs are translated automatically into the input language of the verifier and checked for the worst-case and best-case probability of a crash within a bounded time, from named start states and from whole labelled regions. We generate a coarser grid and verify that the worst-case crash probability is certified to be zero up to a horizon that depends on the start state. We then generate a finer grid, restricted to a car-following window. On both grids the best-case probability is zero from every start state that is not already certain to crash. Section~\ref{sec:cs:sys} describes the system, Section~\ref{sec:cs:model} the modelling choices, Section~\ref{sec:cs:exp} the abstractions and their certificates, Section~\ref{sec:cs:ver} the verification results, and Section~\ref{sec:cs:future} what the results mean for the wider programme.
+	The IMDPs that the abstraction produces are sound by the containment certificate of Section~\ref{sec:abs:sound}. We feed the abstracted system into a probabilistic model checker, the verifier, to understand its behaviour with respect to a safety property, here a crash safety property. The IMDPs are translated automatically into the input language of the verifier and checked for the worst-case and best-case probability of a crash within a bounded time, from named start states and from whole labelled regions. We generate a coarser grid and verify that the worst-case crash probability is certified to be zero up to a horizon that depends on the start state. We then generate a finer grid, restricted to a car-following window. On both grids the best-case probability is zero from every start state that is not already certain to crash, i.e., a bracket of $[1,1]$. Section~\ref{sec:cs:sys} describes the system, Section~\ref{sec:cs:model} the modelling choices, Section~\ref{sec:cs:exp} the abstractions and their certificates, Section~\ref{sec:cs:ver} the verification results, and Section~\ref{sec:cs:future} what the results mean for the wider programme.
 	
 	\subsection{System components}
 	\label{sec:cs:sys}
 	
-	In each \emph{control period}, the fixed time between successive controller decisions, the perception layer hands the controller the current state, the controller commands an acceleration, and the plant advances the state under that acceleration. The perception layer has a camera-based and a radar-based component. Under perfect perception the perception layer passes the state through unchanged, so the controller receives the true state, and both the perception layer and the controller are translated exactly into the verifier's input language, while the plant alone is abstracted (Section~\ref{sec:cs:exp}).
+	In each \emph{control period}, the fixed time between successive controller decisions, the perception layer hands the controller the current state, the controller commands an acceleration, and the plant advances the state under that acceleration. The perception layer has a camera-based and a radar-based component. Under perfect perception the perception layer passes the state through unchanged, so the controller receives the true state, and both the perception layer and the controller are translated without abstraction into the verifier's input language, the controller evaluated at cell centres (Section~\ref{sec:cs:exp}), while the plant alone is abstracted.
 	
 	\paragraph{The plant.}
 	The plant carries the continuous state
@@ -2080,7 +2083,7 @@
 	\begin{itemize}
 		\item the prime marks values at the next step;
 		\item $\dt = 0.1$\,s is the duration of one control period, and one step of the model of Section~\ref{sec:abs} is one control period;
-		\item $\alpha = 0.5$ is a static actuator gain, a modelling choice standing in for the delay with which the vehicle's actuators respond;
+		\item $\alpha = 0.5$ is a static actuator gain, a modelling choice that attenuates the commanded acceleration and stands in for the vehicle's actuator response;
 		\item $\bar{v}_{\text{lead}}'$ is the lead's predicted next velocity, its current velocity floored at zero, that is, a lead predicted to hold its speed; the lead's motion is an input to the model, not a controlled quantity, and no controller is assumed for the lead.
 	\end{itemize}
 	
@@ -2127,7 +2130,16 @@
 	All the randomness of $T_x$ is in $\vlead'$, so the probability of moving from $s$ under $a$ into a cell is the probability that $\vlead'$ falls in that cell's $\vlead$ range if the cell contains $(g', \vego')$, and zero otherwise. This is the factorised kernel of \hyperref[ass:sysclass]{Assumption~(i)}, deterministic in $g$ and $\vego$ and Gaussian in $\vlead$, and it is the kernel against which the containment certificate of Section~\ref{sec:abs:sound} is evaluated. The one-step map~\eqref{eq:vego}--\eqref{eq:gap} is continuous and monotone in each state coordinate, as \hyperref[ass:sysclass]{Assumptions~(ii) and~(iii)} require, since it composes linear maps with the floor at zero, $\max\{0, x\}$.
 	
 	\paragraph{Labels and terminal region.}
-	The labels of Section~\ref{sec:abs:partition}, names attached to states by predicates on the continuous state, are here predicates over $g$ and $\mathrm{TTC}$ of~\eqref{eq:vreltcc}, evaluated at cell centres; Table~\ref{tab:labels} lists them. The \texttt{warning} and \texttt{critical} predicates use the warning and emergency thresholds of~\cite{EuroNCAP}, each triggered by distance or by time to collision. The regions they define are fixed by these thresholds alone; they are not the states in which the controller~\eqref{eq:controller} brakes. The terminal region of Section~\ref{sec:abs:partition} is the region of \texttt{crash}, the \emph{crash region}, whose outcome is decided at entry.
+	The labels of Section~\ref{sec:abs:partition}, names attached to states by predicates on the continuous state, are here predicates over $g$ and $\mathrm{TTC}$ of~\eqref{eq:vreltcc}, evaluated at cell centres; Table~\ref{tab:labels} lists them. The \texttt{warning} and \texttt{critical} predicates use the warning and emergency thresholds of~\cite{EuroNCAP}, each triggered by distance or by time to collision. The regions they define are fixed by these thresholds alone; they are not the states in which the controller~\eqref{eq:controller} brakes. The terminal region of Section~\ref{sec:abs:partition} is the \emph{crash region},
+	\begin{equation}
+		g \;<\; r_g/2,
+		\label{eq:crashq}
+	\end{equation}
+	where
+	\begin{itemize}
+		\item $r_g$ is the gap resolution of Table~\ref{tab:grids}.
+	\end{itemize}
+	Its cells are those whose centre satisfies the \texttt{crash} predicate of Table~\ref{tab:labels}. The terminal boundary of Section~\ref{sec:abs:intervals} is $g = 0$. A successor with $g \le 0$ is routed to the absorbing representative, and a successor with $0 < g < r_g/2$ lands in a grid cell that carries the label \texttt{crash}. The region therefore contains the physical crash set $g \le 0$, so a run the model counts as safe has not crashed.
 	
 	\begin{table}[H]
 		\centering
@@ -2234,7 +2246,7 @@
 	\end{table}
 	
 	\paragraph{Soundness certificates.}
-	The containment test of Section~\ref{sec:abs:sound} was run over every cell of both grids under all three actions, sampling $27$ states per cell, and counting a probability as outside its interval only if it fell outside by more than $10^{-7}$, an allowance for floating-point error. Neither run found a violation, so by Section~\ref{sec:abs:sound} both IMDPs are certified sound over-approximations of the kernel~\eqref{eq:kernel}.
+	The containment test of Section~\ref{sec:abs:sound} was run over every cell of both grids under all three actions, sampling $27$ states per cell. A probability was counted as outside its interval only if it fell outside by more than $10^{-7}$. The tolerance covers two effects, floating-point error in the two computations and the mass omitted by the cutoff and the discarded combinations of Section~\ref{sec:abs:intervals}. Neither run found a violation. By the design argument of Section~\ref{sec:abs:sound}, both IMDPs are sound over-approximations of the kernel~\eqref{eq:kernel} within the scope stated there.
 	
 	\paragraph{Handing the IMDPs to the verifier.}
 	The verifier is Storm~\cite{Storm}. A model of this size, about two million states and three hundred million transitions, exceeded the memory of the cluster node when written in the PRISM language and parsed. Each IMDP is therefore written in Storm's explicit format (DRN), a direct list of states, transitions, and labels. For the medium production grid the PRISM file was $28.9$\,GiB and the explicit file $10.2$\,GiB. The explicit file carries the closed loop, one action per state, the controller's decision~\eqref{eq:controller} at the centre of that state's cell. For each query the verifier computes two numbers. For $P_{\max}$ it plays the adversary, choosing at every step, among the transition probabilities the intervals admit, those that make a crash most likely; for $P_{\min}$ it chooses those that make a crash least likely. The pair $[P_{\min}, P_{\max}]$ is the bracket of Section~\ref{sec:bg:robust}, and the crash probability of the modelled system lies inside it (Section~\ref{sec:abs:sound}). From every start state not already certain to crash, the lowest crash probability the model allows is $0$, because the one cell of freedom per control period that the intervals give the verifier, the drift of Section~\ref{sec:abs:budget}, is enough to avoid the crash region altogether. Every bracket therefore carries its information in $P_{\max}$, and the results report $P_{\max}$.
@@ -2392,7 +2404,7 @@
 		\label{fig:followingcurves}
 	\end{figure}
 	
-	Every scenario has a fractional $P_{\max}$ at some horizon. At any one horizon the five values are ordered by starting gap, largest at the smallest gap, so the certified worst case reproduces the physical ordering. The horizon at which the worst case becomes certain is
+	Every scenario has a fractional $P_{\max}$ at some horizon. At any one horizon the five values are ordered by starting gap, largest at the smallest gap, so the certified worst case reproduces the physical ordering. The horizon at which $P_{\max}$ first reaches $1$ is
 	\begin{equation}
 		k_1 \;=\; \min\{\,k \;:\; P_{\max}(k) = 1\,\},
 		\label{eq:k1}
@@ -2400,9 +2412,9 @@
 	where
 	\begin{itemize}
 		\item $P_{\max}(k)$ is the worst-case crash probability at horizon $k$;
-		\item $k_1$ is the smallest queried horizon at which it equals $1$, that is, the first horizon at which the worst case is certain to crash.
+		\item $k_1$ is the smallest queried horizon at which it equals $1$.
 	\end{itemize}
-	Table~\ref{tab:k1} gives $k_1$ per scenario. A straight line fitted to its five rows has a slope of $1.66$ control periods per metre of starting gap; each metre of starting gap defers certainty by $1.66$ control periods, that is, $0.60$\,m of starting gap per control period.
+	Table~\ref{tab:k1} gives $k_1$ per scenario. A straight line fitted to its five rows has a slope of $1.66$ control periods per metre of starting gap; each metre of starting gap defers $k_1$ by $1.66$ control periods, that is, $0.60$\,m of starting gap per control period.
 	
 	\begin{table}[H]
 		\centering
@@ -2417,12 +2429,12 @@
 			Following Wide & $12$ & $24$ \\
 			\bottomrule
 		\end{tabular}
-		\caption{The horizon at which the worst case becomes certain, per car-following scenario.}
+		\caption{The first queried horizon at which $P_{\max}$ equals $1$, per car-following scenario.}
 		\label{tab:k1}
 	\end{table}
 	
 	
-	A Monte Carlo simulation of the modelled system, that is, repeated random runs of it drawing the lead-velocity noise that the noise-free simulation switched off, uses the dynamics~\eqref{eq:lag}--\eqref{eq:gap}, the controller~\eqref{eq:controller} as quantised on the grid, and the lead-velocity kernel~\eqref{eq:sigmav} truncated to the $\vlead$ range. It ran $10{,}000$ runs per scenario to horizon $24$ under a fixed, recorded random seed; Table~\ref{tab:mc} gives the crash counts. Every observed crash fraction lies inside its certified bracket, and all lie far below $P_{\max}$, which is the worst case the intervals admit and not the rate at which the modelled system crashes. The two Following Near crashes are consistent with the controller~\eqref{eq:controller}, whose first decision from a gap of $8$\,m is coast while from $5$\,m it is brake, so Following Near closes at full speed for longer before braking engages.
+	A Monte Carlo simulation of the modelled system, that is, repeated random runs of it drawing the lead-velocity noise that the noise-free simulation switched off, uses the dynamics~\eqref{eq:lag}--\eqref{eq:gap}, the controller~\eqref{eq:controller} as quantised on the grid, and the lead-velocity kernel~\eqref{eq:sigmav} truncated to the $\vlead$ range. It ran $10{,}000$ runs per scenario to horizon $24$ under a fixed, recorded random seed; Table~\ref{tab:mc} gives the crash counts. Every observed crash fraction lies inside its certified bracket, and all lie far below $P_{\max}$, which is the worst case the intervals admit and not the rate at which the modelled system crashes.
 	
 	\begin{table}[H]
 		\centering
@@ -2462,14 +2474,14 @@
 	\subsection{Interpretation and outlook}
 	\label{sec:cs:interp}
 	
-	In plain terms, the case study delivers certified worst-case crash probabilities for an AEBS under perfect perception. On the medium production grid the worst case is certified impossible up to a horizon set by the start state and certain from the next queried horizon. On the extra-fine Following grid the worst case is strictly between $0$ and $1$ at some horizon for every car-following scenario, the values are ordered by starting gap, and the horizon at which the worst case becomes certain grows with the starting gap. Every best-case probability outside the two start states already certain to crash is $0$, so each bracket is an upper bound on the crash probability of the modelled system and not an estimate of it. The simulation confirms that the modelled system's crash fractions sit far below the upper bounds.
+	In plain terms, the case study delivers certified worst-case crash probabilities for an AEBS under perfect perception. On the medium production grid $P_{\max}$ is $0$ up to a horizon set by the start state and $1$ from the next queried horizon. On the extra-fine Following grid the worst case is strictly between $0$ and $1$ at some horizon for every car-following scenario, the values are ordered by starting gap, and the horizon at which $P_{\max}$ first reaches $1$ grows with the starting gap. Every $P_{\min}$ outside the two start states with bracket $[1,1]$ is $0$, so each bracket is an upper bound on the crash probability of the modelled system and not an estimate of it. The simulation records crash fractions inside the brackets.
 	
-	These results are the perfect-perception baseline of the wider programme (Section~\ref{sec:intro}). The perception layer of Section~\ref{sec:cs:sys} passes the state through unchanged, and every bracket in this section is conditioned on that. The next stage replaces it with measured perception uncertainty from the DNNs, composed with the same certified plant IMDP, and re-runs the same queries; against a perfect-perception baseline the change can only degrade the curves of Figure~\ref{fig:followingcurves}, and the baseline makes the degradation measurable. The baseline is also the reference for correlating DNN verification results with whole-system safety and for extracting the perception requirements that matter most for undegraded safety. Those requirements serve both as specifications a perception component must meet and as runtime monitors that detect safety degradation in operation. The wider framework composes the perception and plant pieces by assume--guarantee contracts, so the brackets certified here are the plant side of that composition.
+	These results are the perfect-perception baseline of the wider programme (Section~\ref{sec:intro}). The perception layer of Section~\ref{sec:cs:sys} passes the state through unchanged, and every bracket in this section is conditioned on that. The next stage replaces it with measured perception uncertainty from the DNNs, composed with the same certified plant IMDP, and re-runs the same queries; if the composed model admits every behaviour of the perfect-perception model, its curves cannot lie below those of Figure~\ref{fig:followingcurves}, and the baseline makes the difference measurable. The baseline is also the reference for correlating DNN verification results with whole-system safety and for extracting the perception requirements that matter most for undegraded safety. Those requirements serve both as specifications a perception component must meet and as runtime monitors that detect safety degradation in operation. The wider framework composes the perception and plant pieces by assume--guarantee contracts, so the brackets certified here are the plant side of that composition.
 	
 	\section{Future work}
 	\label{sec:cs:future}
 	
-	This paper closes Track~1 of the programme of Section~\ref{sec:intro}. Figure~\ref{fig:status} restates the programme with the status of each track. The certified artefacts of Section~\ref{sec:cs}, the two certified configurations and the pipeline that produced them, are the inputs the later tracks build on, and the Following brackets of Section~\ref{sec:cs:extrafine} are the quantitative baseline against which the perception-aware model's brackets will be compared.
+	This paper delivers the perfect-perception baseline of Track~1 of the programme of Section~\ref{sec:intro}. Figure~\ref{fig:status} restates the programme with the status of each track. The certified artefacts of Section~\ref{sec:cs}, the two certified configurations and the pipeline that produced them, are the inputs the later tracks build on, and the Following brackets of Section~\ref{sec:cs:extrafine} are the quantitative baseline against which the perception-aware model's brackets will be compared.
 	
 	\begin{figure}[h]
 		\centering
@@ -2494,7 +2506,7 @@
 				\fill[imdpBlue!8, rounded corners=6pt] (10.9, -1.4) rectangle (18.2, 1.15);
 				
 				\node[font=\small\sffamily\bfseries, text=safeGreen!70!black]
-				at (4.8, 2.75) {Track 1: Formal Abstraction (this paper, complete)};
+				at (4.8, 2.75) {Track 1: Formal Abstraction (this paper)};
 				\node[font=\small\sffamily\bfseries, text=accentOrange!80!black]
 				at (4.8, -3.55) {Track 2: DNN Uncertainty Quantification (next)};
 				\node[font=\small\sffamily\bfseries, text=imdpBlue!80!black]
@@ -2530,7 +2542,7 @@
 				\draw[line, double, double distance=1.5pt] (contracts) -- (monitor);
 			\end{tikzpicture}%
 		}
-		\caption{Status of the programme. Track~1 is complete; Tracks~2 and~3 follow the timeline of Figure~\ref{fig:gantt}.}
+		\caption{Status of the programme. Tracks~2 and~3 follow the timeline of Figure~\ref{fig:gantt}.}
 		\label{fig:status}
 	\end{figure}
 	
@@ -2577,7 +2589,7 @@
 	\section{Conclusion}
 	\label{sec:concl}
 	
-	We have documented an automatic abstraction procedure for discrete-time stochastic hybrid systems whose dynamics mix deterministic and stochastic state variables under a finite action set. The procedure takes such a system and produces a finite interval-valued model of it, together with a certificate that every one-step transition probability of the system lies within the corresponding interval of the model. Under that containment, the probability brackets computed by a robust model checker are sound bounds on the behaviour of the system itself.
+	We have documented an automatic abstraction procedure for discrete-time stochastic hybrid systems whose dynamics mix deterministic and stochastic state variables under a finite action set. The procedure takes such a system and produces a finite interval-valued model of it, together with a certificate that every one-step transition probability of the system as modelled lies within the corresponding interval of the model. Under that containment, the probability brackets computed by a robust model checker are sound bounds on the behaviour of the system itself.
 	
 	We have further documented the application of the procedure to an autonomous emergency braking system, a representative system of this class. The certified models answer the safety question posed of them: from the most dangerous starting conditions a crash is certified as unavoidable, from safer starting conditions the horizon within which safety is decidable is located, and at finer resolution the models discriminate between starting conditions by degree of danger rather than by a coarse safe-or-unsafe verdict. All reported brackets carry informative upper bounds and trivial lower bounds; Section~\ref{sec:cs:future} states how the programme builds on these results.
 	\bibliographystyle{plain}
